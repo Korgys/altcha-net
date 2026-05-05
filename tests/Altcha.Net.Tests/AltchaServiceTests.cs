@@ -41,7 +41,8 @@ public sealed class AltchaServiceTests
     {
         var service = CreateService();
         var challenge = service.GenerateChallenge();
-        var payload = CreateSolvedPayload(challenge, signature: "0" + challenge.Signature.Substring(1));
+        var invalidSignaturePrefix = challenge.Signature[0] == '0' ? "1" : "0";
+        var payload = CreateSolvedPayload(challenge, signature: invalidSignaturePrefix + challenge.Signature.Substring(1));
 
         var result = service.ValidateResponse(payload);
 
