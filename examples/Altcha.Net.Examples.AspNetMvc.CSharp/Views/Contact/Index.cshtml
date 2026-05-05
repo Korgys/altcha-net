@@ -1,0 +1,24 @@
+@model Altcha.Net.Examples.AspNetMvc.CSharp.ContactForm
+
+@{
+    ViewBag.Title = "Contact";
+}
+
+<script async defer src="/scripts/altcha.min.js" type="module"></script>
+
+@using (Html.BeginForm("Submit", "Contact", FormMethod.Post))
+{
+    @Html.AntiForgeryToken()
+    @Html.ValidationSummary()
+
+    <div>
+        @Html.TextBoxFor(m => m.Email, new { type = "email", required = "required" })
+    </div>
+    <div>
+        @Html.TextAreaFor(m => m.Message, new { required = "required" })
+    </div>
+
+    <altcha-widget challenge="@Url.Action("Challenge", "Altcha")"></altcha-widget>
+
+    <button type="submit">Envoyer</button>
+}

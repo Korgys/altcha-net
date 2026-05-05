@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Altcha.Net.sln
+      - run: dotnet build Altcha.Net.sln --configuration Release --no-restore
+      - run: dotnet test Altcha.Net.sln --configuration Release --no-build
+      - run: dotnet pack src/Altcha.Net/Altcha.Net.csproj --configuration Release --no-build --output artifacts
+
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore Altcha.Net.sln
+      - run: dotnet build Altcha.Net.sln --configuration Release --no-restore
+      - run: dotnet test Altcha.Net.sln --configuration Release --no-build
