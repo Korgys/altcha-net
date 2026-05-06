@@ -3,14 +3,8 @@ name: CI
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
 
 permissions:
   contents: read
@@ -20,15 +14,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  build-test-pack:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest ]
+        include:
+          - os: ubuntu-latest
+            test-framework: net10.0
+            coverage: true
+          - os: windows-latest
+            test-framework: net48
+            coverage: false
+
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
+
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+      SONAR_ORG: ${{ secrets.SONAR_ORG }}
 
     steps:
       - name: Checkout code repository
@@ -39,7 +42,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@v5.0.5
@@ -50,6 +55,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Cache Sonar packages
+        if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
         uses: actions/cache@v5.0.5
         with:
           path: ~/.sonar/cache
@@ -59,88 +65,114 @@ jobs:
         run: dotnet restore Altcha.Net.sln
 
       - name: Setup Java
+        if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
       - name: Install SonarScanner
+        if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
         run: dotnet tool install --global dotnet-sonarscanner
 
       - name: Sonar Begin
-        run: |
-          export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet sonarscanner begin \
-            /k:"${{ secrets.SONAR_PROJECT_KEY }}" \
-            /o:"${{ secrets.SONAR_ORG }}" \
-            /d:sonar.host.url="https://sonarcloud.io" \
-            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
-            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" \
-            /d:sonar.coverage.exclusions="**/Program.cs,**/*Tests.cs,**/examples/**" \
-            /d:sonar.exclusions="**/coveragereport/**,**/examples/**" \
-            /d:sonar.scanner.skipJreProvisioning=true
+        if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
+        run: >
+          dotnet sonarscanner begin
+          /k:"$env:SONAR_PROJECT_KEY"
+          /o:"$env:SONAR_ORG"
+          /d:sonar.host.url="https://sonarcloud.io"
+          /d:sonar.token="$env:SONAR_TOKEN"
+          /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml"
+          /d:sonar.coverage.exclusions="**/Program.cs,**/*Tests.cs,**/examples/**"
+          /d:sonar.exclusions="**/coveragereport/**,**/examples/**"
+          /d:sonar.scanner.skipJreProvisioning=true
 
       - name: Build
         run: dotnet build Altcha.Net.sln --no-restore --configuration Release
 
-      - name: Collect XML documentation files
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/artifacts/docs"
-          find "$GITHUB_WORKSPACE" -type f -path "*/bin/Release/*/*.xml" -print -exec cp --parents {} "$GITHUB_WORKSPACE/artifacts/docs" \;
+      - name: Test core
+        if: ${{ !matrix.coverage }}
+        run: dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj --no-build --configuration Release --framework ${{ matrix.test-framework }}
 
-      - name: Test with coverage
-        run: |
-          dotnet test Altcha.Net.sln --no-build --configuration Release \
-            --results-directory "$GITHUB_WORKSPACE/TestResults" \
-            --settings coverlet.runsettings \
-            --collect:"XPlat Code Coverage"
+      - name: Test core with coverage
+        if: ${{ matrix.coverage }}
+        run: >
+          dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj
+          --no-build
+          --configuration Release
+          --framework ${{ matrix.test-framework }}
+          --results-directory TestResults
+          --settings coverlet.runsettings
+          --collect:"XPlat Code Coverage"
+
+      - name: Test ASP.NET Core integration
+        if: ${{ matrix.coverage }}
+        run: >
+          dotnet test tests/Altcha.Net.AspNetCore.Tests/Altcha.Net.AspNetCore.Tests.csproj
+          --no-build
+          --configuration Release
+          --framework net10.0
+          --results-directory TestResults
+          --settings coverlet.runsettings
+          --collect:"XPlat Code Coverage"
 
       - name: Verify coverage files
+        if: ${{ matrix.coverage }}
         run: |
-          echo "Coverage files found:"
-          find "$GITHUB_WORKSPACE/TestResults" -type f -name "coverage.opencover.xml" -print
-
-          if ! find "$GITHUB_WORKSPACE/TestResults" -type f -name "coverage.opencover.xml" | grep -q .; then
-            echo "No coverage.opencover.xml files found under TestResults."
-            exit 1
-          fi
+          $files = Get-ChildItem -Path TestResults -Recurse -Filter coverage.opencover.xml
+          $files | ForEach-Object { $_.FullName }
+          if ($files.Count -eq 0) {
+            throw "No coverage.opencover.xml files found under TestResults."
+          }
 
       - name: Sonar End
-        run: |
-          export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+        if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
+        run: dotnet sonarscanner end /d:sonar.token="$env:SONAR_TOKEN"
 
       - name: Install ReportGenerator tool
-        run: |
-          dotnet tool install --global dotnet-reportgenerator-globaltool
-          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+        if: ${{ matrix.coverage }}
+        run: dotnet tool install --global dotnet-reportgenerator-globaltool
 
       - name: Generate coverage report
-        run: |
-          reportgenerator \
-            -reports:"TestResults/**/coverage.opencover.xml" \
-            -targetdir:"coveragereport" \
-            -reporttypes:"TextSummary;Html"
+        if: ${{ matrix.coverage }}
+        run: >
+          reportgenerator
+          -reports:"TestResults/**/coverage.opencover.xml"
+          -targetdir:"coveragereport"
+          -reporttypes:"TextSummary;Html"
 
       - name: Print coverage summary
-        run: cat coveragereport/Summary.txt
+        if: ${{ matrix.coverage }}
+        run: Get-Content coveragereport/Summary.txt
 
-      - name: Enforce coverage (>= 50%)
+      - name: Enforce coverage
+        if: ${{ matrix.coverage }}
         run: |
-          LINE_COV=$(grep -Po 'Line coverage:\s*\K[0-9.]+(?=%)' coveragereport/Summary.txt || echo 0)
-          echo "Detected coverage: ${LINE_COV}%"
-          awk -v cov="$LINE_COV" 'BEGIN { exit (cov>=50)?0:1 }'
+          $summary = Get-Content coveragereport/Summary.txt -Raw
+          $match = [regex]::Match($summary, 'Line coverage:\s*([0-9.]+)%')
+          $coverage = if ($match.Success) { [double]$match.Groups[1].Value } else { 0 }
+          Write-Host "Detected coverage: $coverage%"
+          if ($coverage -lt 50) {
+            throw "Line coverage is below 50%."
+          }
+
+      - name: Pack
+        if: ${{ matrix.coverage }}
+        run: |
+          dotnet pack src/Altcha.Net/Altcha.Net.csproj --no-build --configuration Release --output artifacts/packages
+          dotnet pack src/Altcha.Net.AspNetCore/Altcha.Net.AspNetCore.csproj --no-build --configuration Release --output artifacts/packages
+
+      - name: Upload packages artifact
+        if: ${{ matrix.coverage }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: nuget-packages
+          path: artifacts/packages
 
       - name: Upload coverage report artifact
-        if: always()
+        if: ${{ always() && matrix.coverage }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: coverage-report
           path: coveragereport
-
-      - name: Upload XML documentation artifact
-        if: always()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: xml-docs
-          path: artifacts/docs

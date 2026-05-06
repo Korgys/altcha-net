@@ -91,6 +91,35 @@ public sealed class AltchaServiceTests
     }
 
     [Fact]
+    public void ValidateResponse_RejectsAlteredChallenge()
+    {
+        var service = CreateService();
+        var challenge = service.GenerateChallenge();
+        var alteredChallengePrefix = challenge.Challenge[0] == '0' ? "1" : "0";
+        var alteredChallenge = alteredChallengePrefix + challenge.Challenge.Substring(1);
+        var signature = HmacSha256Hex(alteredChallenge, Secret);
+        var payload = EncodePayload(challenge.Algorithm, alteredChallenge, 0, challenge.Salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.InvalidProofOfWork, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_RejectsAlteredSalt()
+    {
+        var service = CreateService();
+        var challenge = service.GenerateChallenge();
+        var payload = CreateSolvedPayload(challenge, salt: "ff" + challenge.Salt);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.InvalidProofOfWork, result.Error);
+    }
+
+    [Fact]
     public void ValidateResponse_RejectsExpiredChallenge()
     {
         var service = CreateService();
@@ -246,6 +275,38 @@ public sealed class AltchaServiceTests
         Assert.Equal(1, successes);
     }
 
+    [Fact]
+    public void Constructor_RejectsMissingSecretKey()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => new AltchaService(new AltchaOptions()));
+
+        Assert.Equal("SecretKey", exception.ParamName);
+    }
+
+    [Fact]
+    public void Constructor_RejectsInvalidChallengeExpiry()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new AltchaService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            ChallengeExpiry = TimeSpan.Zero
+        }));
+
+        Assert.Equal("ChallengeExpiry", exception.ParamName);
+    }
+
+    [Fact]
+    public void Constructor_RejectsInvalidSaltLength()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new AltchaService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            SaltLength = 4
+        }));
+
+        Assert.Equal("SaltLength", exception.ParamName);
+    }
+
     private static AltchaService CreateService()
     {
         return new AltchaService(new AltchaOptions
@@ -256,13 +317,13 @@ public sealed class AltchaServiceTests
         }, new MemoryAltchaReplayStore());
     }
 
-    private static string CreateSolvedPayload(AltchaChallenge challenge, string? signature = null)
+    private static string CreateSolvedPayload(AltchaChallenge challenge, string? signature = null, string? salt = null)
     {
         for (var number = 0; number <= challenge.MaxNumber; number++)
         {
             if (string.Equals(Sha256Hex(challenge.Salt + number), challenge.Challenge, StringComparison.Ordinal))
             {
-                return EncodePayload(challenge.Algorithm, challenge.Challenge, number, challenge.Salt, signature ?? challenge.Signature);
+                return EncodePayload(challenge.Algorithm, challenge.Challenge, number, salt ?? challenge.Salt, signature ?? challenge.Signature);
             }
         }
 
@@ -285,11 +346,18 @@ public sealed class AltchaServiceTests
 
     private static string Sha256Hex(string value)
     {
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+        using var sha = SHA256.Create();
+        return ToHex(sha.ComputeHash(Encoding.UTF8.GetBytes(value)));
     }
 
     private static string HmacSha256Hex(string value, string secret)
     {
-        return Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return ToHex(hmac.ComputeHash(Encoding.UTF8.GetBytes(value)));
+    }
+
+    private static string ToHex(byte[] bytes)
+    {
+        return string.Concat(bytes.Select(b => b.ToString("x2")));
     }
 }
