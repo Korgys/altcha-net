@@ -26,5 +26,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet restore Altcha.Net.sln
-      - run: dotnet build Altcha.Net.sln --configuration Release --no-restore
-      - run: dotnet test Altcha.Net.sln --configuration Release --no-build
+      - run: dotnet build src/Altcha.Net/Altcha.Net.csproj --configuration Release --framework netstandard2.0 --no-restore
+      - run: dotnet build src/Altcha.Net/Altcha.Net.csproj --configuration Release --framework net10.0 --no-restore
+      - run: dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj --configuration Release --no-restore

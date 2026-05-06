@@ -1,8 +1,8 @@
 # Altcha.Net
 
-Altcha.Net est une librairie .NET open-source pour utiliser ALTCHA en mode proof-of-work auto-heberge. Elle ne depend pas d'ALTCHA Sentinel, n'appelle aucune API ALTCHA externe et vise les applications modernes comme les sites legacy ASP.NET Framework 4.8.
+Altcha.Net est une librairie .NET open-source communautaire et non officielle pour utiliser ALTCHA en mode proof-of-work auto-heberge. Elle ne depend pas d'ALTCHA Sentinel, n'appelle aucune API ALTCHA externe et vise les applications modernes comme les sites legacy ASP.NET Framework 4.8.
 
-Le MVP implemente le format proof-of-work SHA-256 historique d'ALTCHA, compatible avec le widget ALTCHA v3 en mode legacy PoW v1.
+Le MVP implemente le format proof-of-work SHA-256 historique d'ALTCHA et vise la compatibilite avec le widget ALTCHA en mode legacy PoW v1. La compatibilite navigateur reelle doit encore etre confirmee sur des integrations applicatives completes.
 
 ## Cas d'usage
 
@@ -11,6 +11,15 @@ Le MVP implemente le format proof-of-work SHA-256 historique d'ALTCHA, compatibl
 - Site ASP.NET MVC C#.
 - Site ASP.NET Core avec integration manuelle simple.
 - Captcha leger sans serveur Sentinel.
+
+## Alpha status
+
+Cette version est destinee a une publication alpha NuGet.
+
+- API publique encore susceptible d'ajustements limites avant stabilisation.
+- Compatibilite legacy SHA-256 couverte par tests unitaires et test protocole local.
+- Compatibilite navigateur/widget a valider sur de vrais formulaires avant usage production.
+- Anti-replay memoire adapte a une instance unique uniquement.
 
 ## Installation
 

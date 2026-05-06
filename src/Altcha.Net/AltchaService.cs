@@ -73,7 +73,7 @@ public sealed class AltchaService
             return AltchaValidationResult.Failure(AltchaValidationError.UnsupportedAlgorithm);
         }
 
-        if (payload.Number.Value < 0)
+        if (payload.Number.Value < 0 || payload.Number.Value > _options.Complexity.MaxNumber)
         {
             return AltchaValidationResult.Failure(AltchaValidationError.InvalidNumber);
         }

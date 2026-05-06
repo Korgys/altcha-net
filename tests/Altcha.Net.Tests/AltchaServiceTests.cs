@@ -14,6 +14,8 @@ public sealed class AltchaServiceTests
         var service = CreateService();
 
         var challenge = service.GenerateChallenge();
+        using var json = JsonDocument.Parse(challenge.ToJson());
+        var root = json.RootElement;
 
         Assert.Equal("SHA-256", challenge.Algorithm);
         Assert.Equal(64, challenge.Challenge.Length);
@@ -21,10 +23,17 @@ public sealed class AltchaServiceTests
         Assert.Equal(5, challenge.MaxNumber);
         Assert.Contains("?expires=", challenge.Salt);
         Assert.EndsWith("&", challenge.Salt);
+        Assert.Equal(5, root.EnumerateObject().Count());
+        Assert.Equal(challenge.Algorithm, root.GetProperty("algorithm").GetString());
+        Assert.Equal(challenge.Challenge, root.GetProperty("challenge").GetString());
+        Assert.Equal(challenge.MaxNumber, root.GetProperty("maxnumber").GetInt32());
+        Assert.Equal(challenge.Salt, root.GetProperty("salt").GetString());
+        Assert.Equal(challenge.Signature, root.GetProperty("signature").GetString());
+        Assert.False(root.TryGetProperty("number", out _));
     }
 
     [Fact]
-    public void ValidateResponse_AcceptsValidSolution()
+    public void ValidateResponse_AcceptsWidgetLikeBase64JsonPayload()
     {
         var service = CreateService();
         var challenge = service.GenerateChallenge();
@@ -80,6 +89,41 @@ public sealed class AltchaServiceTests
         Assert.Equal(AltchaValidationError.InvalidProofOfWork, result.Error);
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(6)]
+    public void ValidateResponse_RejectsNumberOutsideConfiguredRange(int number)
+    {
+        var service = CreateService();
+        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
+        var challengeHash = Sha256Hex(salt + number);
+        var signature = HmacSha256Hex(challengeHash, Secret);
+        var payload = EncodePayload("SHA-256", challengeHash, number, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.InvalidNumber, result.Error);
+    }
+
+    [Theory]
+    [InlineData("abcdef")]
+    [InlineData("abcdef?foo=bar&")]
+    [InlineData("abcdef?expires=invalid&")]
+    [InlineData("abcdef?expires=999999999999999999999999&")]
+    public void ValidateResponse_RejectsMissingOrInvalidSaltExpires(string salt)
+    {
+        var service = CreateService();
+        var challengeHash = Sha256Hex(salt + "1");
+        var signature = HmacSha256Hex(challengeHash, Secret);
+        var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.InvalidChallenge, result.Error);
+    }
+
     [Fact]
     public void ValidateResponse_RejectsReplay()
     {
@@ -93,6 +137,25 @@ public sealed class AltchaServiceTests
         Assert.True(first.IsValid);
         Assert.False(second.IsValid);
         Assert.Equal(AltchaValidationError.ReplayDetected, second.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_StoresReplayAtomicallyDuringConcurrentValidation()
+    {
+        var service = CreateService();
+        var challenge = service.GenerateChallenge();
+        var payload = CreateSolvedPayload(challenge);
+        var successes = 0;
+
+        Parallel.For(0, 100, _ =>
+        {
+            if (service.ValidateResponse(payload).IsValid)
+            {
+                Interlocked.Increment(ref successes);
+            }
+        });
+
+        Assert.Equal(1, successes);
     }
 
     [Theory]
