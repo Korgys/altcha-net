@@ -1,31 +1,146 @@
-name: ci
+name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ "main" ]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - run: dotnet restore Altcha.Net.sln
-      - run: dotnet build Altcha.Net.sln --configuration Release --no-restore
-      - run: dotnet test Altcha.Net.sln --configuration Release --no-build
-      - run: dotnet pack src/Altcha.Net/Altcha.Net.csproj --configuration Release --no-build --output artifacts
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
 
-  ubuntu:
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - name: Checkout code repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - run: dotnet restore Altcha.Net.sln
-      - run: dotnet build src/Altcha.Net/Altcha.Net.csproj --configuration Release --framework netstandard2.0 --no-restore
-      - run: dotnet build src/Altcha.Net/Altcha.Net.csproj --configuration Release --framework net10.0 --no-restore
-      - run: dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj --configuration Release --no-restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Cache Sonar packages
+        uses: actions/cache@v5.0.5
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+
+      - name: Restore dependencies
+        run: dotnet restore Altcha.Net.sln
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install SonarScanner
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: Sonar Begin
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet sonarscanner begin \
+            /k:"${{ secrets.SONAR_PROJECT_KEY }}" \
+            /o:"${{ secrets.SONAR_ORG }}" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
+            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" \
+            /d:sonar.coverage.exclusions="**/Program.cs,**/*Tests.cs,**/examples/**" \
+            /d:sonar.exclusions="**/coveragereport/**,**/examples/**" \
+            /d:sonar.scanner.skipJreProvisioning=true
+
+      - name: Build
+        run: dotnet build Altcha.Net.sln --no-restore --configuration Release
+
+      - name: Collect XML documentation files
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/artifacts/docs"
+          find "$GITHUB_WORKSPACE" -type f -path "*/bin/Release/*/*.xml" -print -exec cp --parents {} "$GITHUB_WORKSPACE/artifacts/docs" \;
+
+      - name: Test with coverage
+        run: |
+          dotnet test Altcha.Net.sln --no-build --configuration Release \
+            --results-directory "$GITHUB_WORKSPACE/TestResults" \
+            --settings coverlet.runsettings \
+            --collect:"XPlat Code Coverage"
+
+      - name: Verify coverage files
+        run: |
+          echo "Coverage files found:"
+          find "$GITHUB_WORKSPACE/TestResults" -type f -name "coverage.opencover.xml" -print
+
+          if ! find "$GITHUB_WORKSPACE/TestResults" -type f -name "coverage.opencover.xml" | grep -q .; then
+            echo "No coverage.opencover.xml files found under TestResults."
+            exit 1
+          fi
+
+      - name: Sonar End
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+
+      - name: Install ReportGenerator tool
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Generate coverage report
+        run: |
+          reportgenerator \
+            -reports:"TestResults/**/coverage.opencover.xml" \
+            -targetdir:"coveragereport" \
+            -reporttypes:"TextSummary;Html"
+
+      - name: Print coverage summary
+        run: cat coveragereport/Summary.txt
+
+      - name: Enforce coverage (>= 50%)
+        run: |
+          LINE_COV=$(grep -Po 'Line coverage:\s*\K[0-9.]+(?=%)' coveragereport/Summary.txt || echo 0)
+          echo "Detected coverage: ${LINE_COV}%"
+          awk -v cov="$LINE_COV" 'BEGIN { exit (cov>=50)?0:1 }'
+
+      - name: Upload coverage report artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-report
+          path: coveragereport
+
+      - name: Upload XML documentation artifact
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: xml-docs
+          path: artifacts/docs
