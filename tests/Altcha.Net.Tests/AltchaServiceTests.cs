@@ -46,6 +46,37 @@ public sealed class AltchaServiceTests
     }
 
     [Fact]
+    public void ValidateResponse_AcceptsUrlSafeBase64PayloadWithoutPadding()
+    {
+        var service = CreateService();
+        var challenge = service.GenerateChallenge();
+        var payload = CreateSolvedPayload(challenge)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_AcceptsExpireSaltAlias()
+    {
+        var service = CreateService();
+        var salt = "abcdef?expire=" + DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
+        var challengeHash = Sha256Hex(salt + "1");
+        var signature = HmacSha256Hex(challengeHash, Secret);
+        var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
     public void ValidateResponse_RejectsInvalidSignature()
     {
         var service = CreateService();
@@ -170,6 +201,20 @@ public sealed class AltchaServiceTests
 
         Assert.False(result.IsValid);
         Assert.Equal(expectedError, result.Error);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ValidateResponse_RejectsMissingPayload(string? payload)
+    {
+        var service = CreateService();
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.MissingPayload, result.Error);
     }
 
     [Fact]
