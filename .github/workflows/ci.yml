@@ -77,6 +77,7 @@ jobs:
 
       - name: Sonar Begin
         if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
+        shell: pwsh
         run: >
           dotnet sonarscanner begin
           /k:"$env:SONAR_PROJECT_KEY"
@@ -119,6 +120,7 @@ jobs:
 
       - name: Verify coverage files
         if: ${{ matrix.coverage }}
+        shell: pwsh
         run: |
           $files = Get-ChildItem -Path TestResults -Recurse -Filter coverage.opencover.xml
           $files | ForEach-Object { $_.FullName }
@@ -128,6 +130,7 @@ jobs:
 
       - name: Sonar End
         if: ${{ matrix.coverage && github.event_name != 'pull_request' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORG != '' }}
+        shell: pwsh
         run: dotnet sonarscanner end /d:sonar.token="$env:SONAR_TOKEN"
 
       - name: Install ReportGenerator tool
@@ -144,10 +147,12 @@ jobs:
 
       - name: Print coverage summary
         if: ${{ matrix.coverage }}
+        shell: pwsh
         run: Get-Content coveragereport/Summary.txt
 
       - name: Enforce coverage
         if: ${{ matrix.coverage }}
+        shell: pwsh
         run: |
           $summary = Get-Content coveragereport/Summary.txt -Raw
           $match = [regex]::Match($summary, 'Line coverage:\s*([0-9.]+)%')
