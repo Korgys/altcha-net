@@ -1,8 +1,10 @@
+using System.Threading;
+using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
 namespace Altcha.Net;
 
-public sealed class MemoryAltchaReplayStore : IAltchaReplayStore
+public sealed class MemoryAltchaReplayStore : IAltchaReplayStore, IAltchaReplayStoreAsync
 {
     private readonly ConcurrentDictionary<string, DateTimeOffset> _usedChallenges = new ConcurrentDictionary<string, DateTimeOffset>(StringComparer.Ordinal);
     private int _operations;
@@ -43,6 +45,11 @@ public sealed class MemoryAltchaReplayStore : IAltchaReplayStore
                 return true;
             }
         }
+    }
+
+    public ValueTask<bool> TryStoreOnceAsync(string key, DateTimeOffset expiresAt, CancellationToken ct = default)
+    {
+        return new ValueTask<bool>(TryStoreOnce(key, expiresAt));
     }
 
     private void RemoveExpired(DateTimeOffset now)

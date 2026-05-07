@@ -64,13 +64,13 @@ public sealed class AltchaAspNetCoreTests
     }
 
     [Fact]
-    public void DistributedCacheReplayStore_RejectsReplayAfterFirstStore()
+    public async Task DistributedCacheReplayStoreAsync_RejectsReplayAfterFirstStore()
     {
         IDistributedCache cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
         var store = new DistributedCacheAltchaReplayStore(cache);
 
-        var first = store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
-        var second = store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
+        var first = await store.TryStoreOnceAsync("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
+        var second = await store.TryStoreOnceAsync("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
 
         Assert.True(first);
         Assert.False(second);
@@ -89,12 +89,12 @@ public sealed class AltchaAspNetCoreTests
         var t1 = Task.Run(async () =>
         {
             await gate.Task;
-            return worker1.TryStoreOnce("shared-challenge", expiresAt);
+            return await worker1.TryStoreOnceAsync("shared-challenge", expiresAt);
         });
         var t2 = Task.Run(async () =>
         {
             await gate.Task;
-            return worker2.TryStoreOnce("shared-challenge", expiresAt);
+            return await worker2.TryStoreOnceAsync("shared-challenge", expiresAt);
         });
 
         gate.SetResult();
@@ -118,12 +118,12 @@ public sealed class AltchaAspNetCoreTests
         var t1 = Task.Run(async () =>
         {
             await gate.Task;
-            return worker1.TryStoreOnce("shared-challenge", expiresAt);
+            return await worker1.TryStoreOnceAsync("shared-challenge", expiresAt);
         });
         var t2 = Task.Run(async () =>
         {
             await gate.Task;
-            return worker2.TryStoreOnce("shared-challenge", expiresAt);
+            return await worker2.TryStoreOnceAsync("shared-challenge", expiresAt);
         });
 
         gate.SetResult();

@@ -261,6 +261,35 @@ public sealed class AltchaServiceTests
         Assert.Equal(1, successes);
     }
 
+
+    [Fact]
+    public async Task ValidateResponseAsync_AcceptsWidgetLikeBase64JsonPayload()
+    {
+        var service = CreateService();
+        var challenge = service.GenerateChallenge();
+        var payload = CreateSolvedPayload(challenge);
+
+        var result = await service.ValidateResponseAsync(payload);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
+    public async Task ValidateResponseAsync_RejectsReplay()
+    {
+        var service = CreateService();
+        var challenge = service.GenerateChallenge();
+        var payload = CreateSolvedPayload(challenge);
+
+        var first = await service.ValidateResponseAsync(payload);
+        var second = await service.ValidateResponseAsync(payload);
+
+        Assert.True(first.IsValid);
+        Assert.False(second.IsValid);
+        Assert.Equal(AltchaValidationError.ReplayDetected, second.Error);
+    }
+
     [Theory]
     [InlineData("not base64", AltchaValidationError.InvalidBase64)]
     [InlineData("e2JhZA==", AltchaValidationError.InvalidJson)]

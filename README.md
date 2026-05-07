@@ -94,6 +94,24 @@ app.MapAltchaChallenge("/altcha/challenge", security =>
 });
 ```
 
+
+Exemple Minimal API pour valider un formulaire avec la nouvelle API asynchrone:
+
+```csharp
+app.MapPost("/contact", async (HttpRequest request, AltchaService altchaService, CancellationToken ct) =>
+{
+    var form = await request.ReadFormAsync(ct);
+    var result = await altchaService.ValidateResponseAsync(form["altcha"], ct);
+
+    if (!result.IsValid)
+    {
+        return Results.BadRequest(new { error = result.Error.ToString() });
+    }
+
+    return Results.Ok();
+});
+```
+
 Exemple minimal sans rate limiter (seulement `Cache-Control: no-store`):
 
 ```csharp
