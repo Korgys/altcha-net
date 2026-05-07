@@ -6,6 +6,8 @@ public sealed class AltchaOptions
 
     public TimeSpan ChallengeExpiry { get; set; } = TimeSpan.FromMinutes(2);
 
+    public TimeSpan AllowedClockSkew { get; set; } = TimeSpan.FromSeconds(10);
+
     public AltchaComplexity Complexity { get; set; } = new AltchaComplexity(50000, 100000);
 
     public string Algorithm { get; set; } = AltchaAlgorithms.Sha256;
@@ -22,6 +24,11 @@ public sealed class AltchaOptions
         if (ChallengeExpiry <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(ChallengeExpiry), "The challenge expiry must be greater than zero.");
+        }
+
+        if (AllowedClockSkew < TimeSpan.Zero || AllowedClockSkew > TimeSpan.FromMinutes(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(AllowedClockSkew), "The allowed clock skew must be between 0 and 1 minute.");
         }
 
         if (!string.Equals(Algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))

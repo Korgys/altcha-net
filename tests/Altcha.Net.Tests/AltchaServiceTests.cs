@@ -134,6 +134,49 @@ public sealed class AltchaServiceTests
         Assert.Equal(AltchaValidationError.Expired, result.Error);
     }
 
+
+    [Fact]
+    public void ValidateResponse_AcceptsChallengeJustBeforeExpirySkewLimit()
+    {
+        var service = CreateService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            ChallengeExpiry = TimeSpan.FromMinutes(2),
+            AllowedClockSkew = TimeSpan.FromSeconds(5),
+            Complexity = new AltchaComplexity(0, 5)
+        });
+        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-4).ToUnixTimeSeconds() + "&";
+        var challengeHash = Sha256Hex(salt + "1");
+        var signature = HmacSha256Hex(challengeHash, Secret);
+        var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_RejectsChallengeJustAfterExpirySkewLimit()
+    {
+        var service = CreateService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            ChallengeExpiry = TimeSpan.FromMinutes(2),
+            AllowedClockSkew = TimeSpan.FromSeconds(5),
+            Complexity = new AltchaComplexity(0, 5)
+        });
+        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-6).ToUnixTimeSeconds() + "&";
+        var challengeHash = Sha256Hex(salt + "1");
+        var signature = HmacSha256Hex(challengeHash, Secret);
+        var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.Expired, result.Error);
+    }
+
     [Fact]
     public void ValidateResponse_RejectsInvalidProofOfWork()
     {
@@ -307,14 +350,30 @@ public sealed class AltchaServiceTests
         Assert.Equal("SaltLength", exception.ParamName);
     }
 
-    private static AltchaService CreateService()
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(61)]
+    public void Constructor_RejectsInvalidAllowedClockSkew(int seconds)
     {
-        return new AltchaService(new AltchaOptions
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new AltchaService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            AllowedClockSkew = TimeSpan.FromSeconds(seconds)
+        }));
+
+        Assert.Equal("AllowedClockSkew", exception.ParamName);
+    }
+
+    private static AltchaService CreateService(AltchaOptions? options = null)
+    {
+        options ??= new AltchaOptions
         {
             SecretKey = Secret,
             ChallengeExpiry = TimeSpan.FromMinutes(2),
             Complexity = new AltchaComplexity(0, 5)
-        }, new MemoryAltchaReplayStore());
+        };
+
+        return new AltchaService(options, new MemoryAltchaReplayStore());
     }
 
     private static string CreateSolvedPayload(AltchaChallenge challenge, string? signature = null, string? salt = null)

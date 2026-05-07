@@ -32,6 +32,7 @@ builder.Services.AddAltcha(options =>
 {
     options.SecretKey = builder.Configuration["Altcha:SecretKey"]!;
     options.ChallengeExpiry = TimeSpan.FromMinutes(2);
+    options.AllowedClockSkew = TimeSpan.FromSeconds(10);
     options.Complexity = new AltchaComplexity(50000, 100000);
 });
 
@@ -70,6 +71,7 @@ var service = new AltchaService(new AltchaOptions
 {
     SecretKey = Environment.GetEnvironmentVariable("ALTCHA_SECRET")!,
     ChallengeExpiry = TimeSpan.FromMinutes(2),
+    AllowedClockSkew = TimeSpan.FromSeconds(10),
     Complexity = new AltchaComplexity(50000, 100000)
 }, new MemoryAltchaReplayStore());
 ```
@@ -122,6 +124,7 @@ Le widget poste un champ de formulaire `altcha` contenant un JSON encode en Base
 - `SecretKey`: cle HMAC serveur. Ne jamais l'exposer au navigateur.
 - `ChallengeExpiry`: duree de validite courte, par defaut 2 minutes.
 - `Complexity`: plage du nombre proof-of-work, par defaut `50000..100000`.
+- `AllowedClockSkew`: marge de tolerance inter-noeuds pour l'expiration, par defaut 10 secondes (recommande entre 5 et 30 secondes avec NTP actif).
 - `IAltchaReplayStore`: store anti-replay.
 - `Algorithm`: seul `SHA-256` est supporte actuellement.
 
@@ -130,6 +133,7 @@ Le widget poste un champ de formulaire `altcha` contenant un JSON encode en Base
 - Stocker `SecretKey` dans un secret manager ou une variable d'environnement.
 - Servir le site en HTTPS.
 - Garder une expiration courte.
+- Synchroniser les horloges serveurs via NTP (chrony/systemd-timesyncd/Windows Time) pour limiter le skew.
 - Ne pas logger les payloads ALTCHA complets ni la cle secrete.
 - Utiliser un store partage en multi-instance.
 - Eviter `MemoryAltchaReplayStore` en production multi-serveur.

@@ -90,7 +90,8 @@ public sealed class AltchaService
             return AltchaValidationResult.Failure(AltchaValidationError.InvalidChallenge);
         }
 
-        if (expiresAt <= DateTimeOffset.UtcNow)
+        var expirationWithSkew = expiresAt.Add(_options.AllowedClockSkew);
+        if (DateTimeOffset.UtcNow >= expirationWithSkew)
         {
             return AltchaValidationResult.Failure(AltchaValidationError.Expired);
         }
