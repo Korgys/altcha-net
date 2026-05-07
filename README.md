@@ -46,6 +46,19 @@ builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
 builder.Services.AddDistributedAltchaReplayStore();
 ```
 
+Mode atomique strict (recommande en multi-instance) avec un backend qui supporte une operation de type `SET key value NX EX`:
+
+```csharp
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("Redis");
+});
+
+builder.Services.AddSingleton<IAtomicAltchaReplayStore, RedisAtomicAltchaReplayStore>();
+builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
+builder.Services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic);
+```
+
 `DistributedCacheAltchaReplayStore` utilise `IDistributedCache`. Cette abstraction ne garantit pas une insertion atomique pour tous les providers.
 
 ## ASP.NET Framework 4.8 quick start
@@ -120,7 +133,8 @@ Le widget poste un champ de formulaire `altcha` contenant un JSON encode en Base
 - Ne pas logger les payloads ALTCHA complets ni la cle secrete.
 - Utiliser un store partage en multi-instance.
 - Eviter `MemoryAltchaReplayStore` en production multi-serveur.
-- Verifier les garanties d'atomicite du provider `IDistributedCache`.
+- `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.BestEffort)` utilise `IDistributedCache` en fallback best effort: anti-replay non strictement atomique.
+- `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic)` exige `IAtomicAltchaReplayStore` et garantit un "insert-if-absent" atomique entre workers (ex: Redis `SET ... NX EX`).
 
 ## Known limitations
 

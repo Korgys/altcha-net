@@ -39,14 +39,30 @@ public static class AltchaServiceCollectionExtensions
         return services.AddAltchaCore();
     }
 
-    public static IServiceCollection AddDistributedAltchaReplayStore(this IServiceCollection services)
+    public static IServiceCollection AddDistributedAltchaReplayStore(
+        this IServiceCollection services,
+        DistributedAltchaReplayStoreMode mode = DistributedAltchaReplayStoreMode.BestEffort)
     {
         if (services == null)
         {
             throw new ArgumentNullException(nameof(services));
         }
 
-        services.AddSingleton<IAltchaReplayStore, DistributedCacheAltchaReplayStore>();
+        services.AddSingleton<IAltchaReplayStore>(sp =>
+        {
+            var cache = sp.GetRequiredService<Microsoft.Extensions.Caching.Distributed.IDistributedCache>();
+
+            if (mode == DistributedAltchaReplayStoreMode.StrictAtomic)
+            {
+                var atomic = sp.GetService<IAtomicAltchaReplayStore>()
+                    ?? throw new InvalidOperationException(
+                        "StrictAtomic mode requires an IAtomicAltchaReplayStore implementation (for example a Redis SET NX EX adapter).");
+
+                return new DistributedCacheAltchaReplayStore(cache, atomic);
+            }
+
+            return new DistributedCacheAltchaReplayStore(cache);
+        });
         return services;
     }
 

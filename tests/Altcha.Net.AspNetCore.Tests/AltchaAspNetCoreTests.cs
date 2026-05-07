@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
 
 namespace Altcha.Net.AspNetCore.Tests;
 
@@ -73,5 +74,104 @@ public sealed class AltchaAspNetCoreTests
 
         Assert.True(first);
         Assert.False(second);
+    }
+
+    [Fact]
+    public async Task DistributedCacheReplayStore_BestEffort_AllowsRaceAcrossWorkers()
+    {
+        var backend = new ConcurrentDictionary<string, (string Value, DateTimeOffset ExpiresAt)>();
+        var worker1 = new DistributedCacheAltchaReplayStore(new RaceyDistributedCache(backend));
+        var worker2 = new DistributedCacheAltchaReplayStore(new RaceyDistributedCache(backend));
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var t1 = Task.Run(async () =>
+        {
+            await gate.Task;
+            return worker1.TryStoreOnce("shared-challenge", expiresAt);
+        });
+        var t2 = Task.Run(async () =>
+        {
+            await gate.Task;
+            return worker2.TryStoreOnce("shared-challenge", expiresAt);
+        });
+
+        gate.SetResult();
+        var results = await Task.WhenAll(t1, t2);
+
+        Assert.Equal(2, results.Count(v => v));
+    }
+
+    [Fact]
+    public async Task DistributedCacheReplayStore_StrictAtomic_PreventsRaceAcrossWorkers()
+    {
+        var backend = new ConcurrentDictionary<string, DateTimeOffset>();
+        var atomic = new InMemoryAtomicAltchaReplayStore(backend);
+        var worker1 = new DistributedCacheAltchaReplayStore(
+            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())), atomic);
+        var worker2 = new DistributedCacheAltchaReplayStore(
+            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())), atomic);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var t1 = Task.Run(async () =>
+        {
+            await gate.Task;
+            return worker1.TryStoreOnce("shared-challenge", expiresAt);
+        });
+        var t2 = Task.Run(async () =>
+        {
+            await gate.Task;
+            return worker2.TryStoreOnce("shared-challenge", expiresAt);
+        });
+
+        gate.SetResult();
+        var results = await Task.WhenAll(t1, t2);
+
+        Assert.Equal(1, results.Count(v => v));
+    }
+
+    private sealed class InMemoryAtomicAltchaReplayStore(ConcurrentDictionary<string, DateTimeOffset> backend)
+        : IAtomicAltchaReplayStore
+    {
+        public bool TryStoreOnceAtomic(string key, DateTimeOffset expiresAt)
+            => backend.TryAdd(key, expiresAt);
+    }
+
+    private sealed class RaceyDistributedCache(ConcurrentDictionary<string, (string Value, DateTimeOffset ExpiresAt)> backend) : IDistributedCache
+    {
+        public byte[]? Get(string key)
+        {
+            if (backend.TryGetValue(key, out var entry) && entry.ExpiresAt > DateTimeOffset.UtcNow)
+            {
+                return System.Text.Encoding.UTF8.GetBytes(entry.Value);
+            }
+
+            return null;
+        }
+
+        public Task<byte[]?> GetAsync(string key, CancellationToken token = default) => Task.FromResult(Get(key));
+        public void Refresh(string key) { }
+        public Task RefreshAsync(string key, CancellationToken token = default) => Task.CompletedTask;
+        public void Remove(string key) => backend.TryRemove(key, out _);
+        public Task RemoveAsync(string key, CancellationToken token = default)
+        {
+            Remove(key);
+            return Task.CompletedTask;
+        }
+
+        public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
+        {
+            var expiresAt = options.AbsoluteExpiration ?? DateTimeOffset.UtcNow.AddMinutes(1);
+            Thread.Sleep(20);
+            backend[key] = (System.Text.Encoding.UTF8.GetString(value), expiresAt);
+        }
+
+        public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default)
+        {
+            Set(key, value, options);
+            return Task.CompletedTask;
+        }
     }
 }

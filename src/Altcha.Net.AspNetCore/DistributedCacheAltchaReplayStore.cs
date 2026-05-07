@@ -8,6 +8,7 @@ public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
 {
     private const string CacheValue = "1";
     private readonly IDistributedCache _cache;
+    private readonly IAtomicAltchaReplayStore? _atomicStore;
     private readonly string _keyPrefix;
 
     public DistributedCacheAltchaReplayStore(IDistributedCache cache)
@@ -16,8 +17,17 @@ public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
     }
 
     public DistributedCacheAltchaReplayStore(IDistributedCache cache, string keyPrefix)
+        : this(cache, null, keyPrefix)
+    {
+    }
+
+    public DistributedCacheAltchaReplayStore(
+        IDistributedCache cache,
+        IAtomicAltchaReplayStore? atomicStore,
+        string keyPrefix = "altcha:replay:")
     {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        _atomicStore = atomicStore;
         _keyPrefix = string.IsNullOrWhiteSpace(keyPrefix)
             ? throw new ArgumentException("The replay cache key prefix is required.", nameof(keyPrefix))
             : keyPrefix;
@@ -37,6 +47,14 @@ public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
         }
 
         var cacheKey = _keyPrefix + HashKey(key);
+
+        if (_atomicStore != null)
+        {
+            return _atomicStore.TryStoreOnceAtomic(cacheKey, expiresAt);
+        }
+
+        // Best-effort fallback for generic IDistributedCache providers.
+        // This path is not strictly atomic across concurrent workers.
         if (_cache.GetString(cacheKey) != null)
         {
             return false;
