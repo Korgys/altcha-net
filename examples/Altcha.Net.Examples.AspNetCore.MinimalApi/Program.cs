@@ -1,5 +1,6 @@
 using Altcha.Net;
 using Altcha.Net.AspNetCore;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,9 +13,25 @@ builder.Services.AddAltcha(options =>
     options.Complexity = new AltchaComplexity(50000, 100000);
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("altcha-challenge", limiterOptions =>
+    {
+        limiterOptions.PermitLimit = 30;
+        limiterOptions.Window = TimeSpan.FromMinutes(1);
+        limiterOptions.QueueLimit = 0;
+    });
+});
+
 var app = builder.Build();
 
-app.MapAltchaChallenge("/altcha/challenge");
+app.UseRateLimiter();
+
+app.MapAltchaChallenge("/altcha/challenge", security =>
+{
+    security.RateLimitingPolicyName = "altcha-challenge";
+    security.AllowedHosts = ["localhost", "127.0.0.1", "[::1]"];
+});
 
 app.MapGet("/", () => Results.Content("""
 <!doctype html>

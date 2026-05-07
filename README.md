@@ -62,6 +62,44 @@ builder.Services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMod
 
 `DistributedCacheAltchaReplayStore` utilise `IDistributedCache`. Cette abstraction ne garantit pas une insertion atomique pour tous les providers.
 
+## Endpoint hardening
+
+L'endpoint challenge peut etre durci avec des conventions optionnelles:
+
+```csharp
+using Altcha.Net;
+using Altcha.Net.AspNetCore;
+using System.Threading.RateLimiting;
+
+builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("altcha-challenge", limiter =>
+    {
+        limiter.PermitLimit = 30;
+        limiter.Window = TimeSpan.FromMinutes(1);
+        limiter.QueueLimit = 0;
+    });
+});
+
+var app = builder.Build();
+
+app.UseRateLimiter();
+
+app.MapAltchaChallenge("/altcha/challenge", security =>
+{
+    security.RateLimitingPolicyName = "altcha-challenge";
+    security.AllowedHosts = ["example.com", "www.example.com"];
+    // Cache-Control: no-store est active par defaut.
+});
+```
+
+Exemple minimal sans rate limiter (seulement `Cache-Control: no-store`):
+
+```csharp
+app.MapAltchaChallenge("/altcha/challenge");
+```
+
 ## ASP.NET Framework 4.8 quick start
 
 ```csharp
