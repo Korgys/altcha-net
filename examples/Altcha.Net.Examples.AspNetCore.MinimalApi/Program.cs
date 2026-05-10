@@ -1,5 +1,6 @@
 using Altcha.Net;
 using Altcha.Net.AspNetCore;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);

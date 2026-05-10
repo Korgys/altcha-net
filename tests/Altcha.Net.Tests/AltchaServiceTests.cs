@@ -145,7 +145,7 @@ public sealed class AltchaServiceTests
             AllowedClockSkew = TimeSpan.FromSeconds(5),
             Complexity = new AltchaComplexity(0, 5)
         });
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-4).ToUnixTimeSeconds() + "&";
+        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-2).ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
@@ -166,7 +166,7 @@ public sealed class AltchaServiceTests
             AllowedClockSkew = TimeSpan.FromSeconds(5),
             Complexity = new AltchaComplexity(0, 5)
         });
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-6).ToUnixTimeSeconds() + "&";
+        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-10).ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);

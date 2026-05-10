@@ -1,7 +1,10 @@
 using System.Text.Json;
 using Altcha.Net.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,6 +38,74 @@ public sealed class AltchaAspNetCoreTests
     }
 
     [Fact]
+    public void AddAltcha_WithConfiguration_BindsOptions()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SecretKey"] = "configured-secret",
+                ["ChallengeExpiry"] = "00:03:00",
+                ["AllowedClockSkew"] = "00:00:07",
+                ["SaltLength"] = "16"
+            })
+            .Build();
+        var services = new ServiceCollection();
+
+        services.AddAltcha(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<AltchaOptions>>().Value;
+
+        Assert.Equal("configured-secret", options.SecretKey);
+        Assert.Equal(TimeSpan.FromMinutes(3), options.ChallengeExpiry);
+        Assert.Equal(TimeSpan.FromSeconds(7), options.AllowedClockSkew);
+        Assert.Equal(16, options.SaltLength);
+    }
+
+    [Fact]
+    public void AddDistributedAltchaReplayStore_StrictAtomic_RequiresAtomicStore()
+    {
+        var services = new ServiceCollection();
+        services.AddDistributedMemoryCache();
+        services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic);
+
+        using var provider = services.BuildServiceProvider();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<IAltchaReplayStore>());
+        Assert.Contains("StrictAtomic mode requires", exception.Message);
+    }
+
+    [Fact]
+    public void AddDistributedAltchaReplayStore_StrictAtomic_UsesRegisteredAtomicStore()
+    {
+        var backend = new ConcurrentDictionary<string, DateTimeOffset>();
+        var services = new ServiceCollection();
+        services.AddDistributedMemoryCache();
+        services.AddSingleton<IAtomicAltchaReplayStore>(new InMemoryAtomicAltchaReplayStore(backend));
+        services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic);
+
+        using var provider = services.BuildServiceProvider();
+        var store = provider.GetRequiredService<IAltchaReplayStore>();
+
+        Assert.True(store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1)));
+        Assert.False(store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1)));
+    }
+
+    [Fact]
+    public void ServiceCollectionExtensions_RejectInvalidArguments()
+    {
+        IServiceCollection? services = null;
+        var validServices = new ServiceCollection();
+        var configuration = new ConfigurationBuilder().Build();
+
+        Assert.Throws<ArgumentNullException>(() => services!.AddAltcha(_ => { }));
+        Assert.Throws<ArgumentNullException>(() => validServices.AddAltcha((Action<AltchaOptions>)null!));
+        Assert.Throws<ArgumentNullException>(() => services!.AddAltcha(configuration));
+        Assert.Throws<ArgumentNullException>(() => validServices.AddAltcha((IConfiguration)null!));
+        Assert.Throws<ArgumentNullException>(() => services!.AddDistributedAltchaReplayStore());
+    }
+
+    [Fact]
     public async Task MapAltchaChallenge_ReturnsChallengeJson()
     {
         var builder = WebApplication.CreateBuilder();
@@ -56,11 +127,69 @@ public sealed class AltchaAspNetCoreTests
         using var document = JsonDocument.Parse(json);
 
         response.EnsureSuccessStatusCode();
+        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Contains(response.Headers.Pragma, value => value.Name == "no-cache");
+        Assert.True(response.Content.Headers.Expires.HasValue);
         Assert.Equal("SHA-256", document.RootElement.GetProperty("algorithm").GetString());
         Assert.True(document.RootElement.TryGetProperty("challenge", out _));
         Assert.True(document.RootElement.TryGetProperty("salt", out _));
         Assert.True(document.RootElement.TryGetProperty("signature", out _));
         Assert.True(document.RootElement.TryGetProperty("maxnumber", out _));
+    }
+
+    [Fact]
+    public async Task MapAltchaChallenge_AppliesHostRestriction()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddAltcha(options =>
+        {
+            options.SecretKey = "test-secret";
+            options.Complexity = new AltchaComplexity(0, 5);
+        });
+
+        await using var app = builder.Build();
+        app.MapAltchaChallenge("/altcha/challenge", security =>
+        {
+            security.AllowedHosts = ["allowed.test"];
+            security.DisableResponseCaching = false;
+        });
+        await app.StartAsync();
+
+        using var client = app.GetTestClient();
+        using var blocked = await client.GetAsync("http://blocked.test/altcha/challenge");
+        using var allowed = await client.GetAsync("http://allowed.test/altcha/challenge");
+
+        Assert.Equal(StatusCodes.Status404NotFound, (int)blocked.StatusCode);
+        allowed.EnsureSuccessStatusCode();
+        Assert.Null(allowed.Headers.CacheControl);
+    }
+
+    [Fact]
+    public void MapAltchaChallenge_AppliesRateLimitingMetadata()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAltcha(options => options.SecretKey = "test-secret");
+
+        using var app = builder.Build();
+        app.MapAltchaChallenge("/altcha/challenge", security =>
+        {
+            security.RateLimitingPolicyName = "altcha-policy";
+        });
+
+        var endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints));
+
+        Assert.Contains(endpoint.Metadata, metadata => metadata.GetType().Name.Contains("RateLimiting", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MapAltchaChallenge_RejectsInvalidArguments()
+    {
+        IEndpointRouteBuilder? endpoints = null;
+        var builder = WebApplication.CreateBuilder();
+
+        Assert.Throws<ArgumentNullException>(() => endpoints!.MapAltchaChallenge());
+        Assert.Throws<ArgumentException>(() => builder.Build().MapAltchaChallenge(" "));
     }
 
     [Fact]
@@ -74,6 +203,31 @@ public sealed class AltchaAspNetCoreTests
 
         Assert.True(first);
         Assert.False(second);
+    }
+
+    [Fact]
+    public void DistributedCacheReplayStore_RejectsExpiredAndDuplicateKeys()
+    {
+        IDistributedCache cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
+        var store = new DistributedCacheAltchaReplayStore(cache, "test:");
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        Assert.False(store.TryStoreOnce("expired", DateTimeOffset.UtcNow.AddSeconds(-1)));
+        Assert.True(store.TryStoreOnce("same-challenge", expiresAt));
+        Assert.False(store.TryStoreOnce("same-challenge", expiresAt));
+        Assert.Throws<ArgumentException>(() => store.TryStoreOnce(" ", expiresAt));
+        Assert.Throws<ArgumentException>(() => new DistributedCacheAltchaReplayStore(cache, " "));
+    }
+
+    [Fact]
+    public async Task DistributedCacheReplayStoreAsync_RejectsExpiredAndBlankKeys()
+    {
+        IDistributedCache cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
+        var store = new DistributedCacheAltchaReplayStore(cache);
+
+        Assert.False(await store.TryStoreOnceAsync("expired", DateTimeOffset.UtcNow.AddSeconds(-1)));
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await store.TryStoreOnceAsync(" ", DateTimeOffset.UtcNow.AddMinutes(1)));
     }
 
     [Fact]

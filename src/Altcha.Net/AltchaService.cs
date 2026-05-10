@@ -136,7 +136,7 @@ public sealed class AltchaService
             return AltchaValidationResult.Failure(AltchaValidationError.InvalidProofOfWork);
         }
 
-        if (!await storeReplay(challenge, expiresAt, ct).ConfigureAwait(false))
+        if (!await storeReplay(challenge, expirationWithSkew, ct).ConfigureAwait(false))
         {
             return AltchaValidationResult.Failure(AltchaValidationError.ReplayDetected);
         }

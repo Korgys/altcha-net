@@ -69,6 +69,7 @@ L'endpoint challenge peut etre durci avec des conventions optionnelles:
 ```csharp
 using Altcha.Net;
 using Altcha.Net.AspNetCore;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
 builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
