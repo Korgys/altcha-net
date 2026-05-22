@@ -1,6 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
+#if NET48
+using System.Web.Script.Serialization;
+#else
 using System.Text.Json;
+#endif
 
 namespace Altcha.Net.Tests;
 
@@ -14,8 +18,7 @@ public sealed class AltchaServiceTests
         var service = CreateService();
 
         var challenge = service.GenerateChallenge();
-        using var json = JsonDocument.Parse(challenge.ToJson());
-        var root = json.RootElement;
+        var root = ParseJsonObject(challenge.ToJson());
 
         Assert.Equal("SHA-256", challenge.Algorithm);
         Assert.Equal(64, challenge.Challenge.Length);
@@ -23,13 +26,13 @@ public sealed class AltchaServiceTests
         Assert.Equal(5, challenge.MaxNumber);
         Assert.Contains("?expires=", challenge.Salt);
         Assert.EndsWith("&", challenge.Salt);
-        Assert.Equal(5, root.EnumerateObject().Count());
-        Assert.Equal(challenge.Algorithm, root.GetProperty("algorithm").GetString());
-        Assert.Equal(challenge.Challenge, root.GetProperty("challenge").GetString());
-        Assert.Equal(challenge.MaxNumber, root.GetProperty("maxnumber").GetInt32());
-        Assert.Equal(challenge.Salt, root.GetProperty("salt").GetString());
-        Assert.Equal(challenge.Signature, root.GetProperty("signature").GetString());
-        Assert.False(root.TryGetProperty("number", out _));
+        Assert.Equal(5, root.Count);
+        Assert.Equal(challenge.Algorithm, ReadString(root, "algorithm"));
+        Assert.Equal(challenge.Challenge, ReadString(root, "challenge"));
+        Assert.Equal(challenge.MaxNumber, ReadInt32(root, "maxnumber"));
+        Assert.Equal(challenge.Salt, ReadString(root, "salt"));
+        Assert.Equal(challenge.Signature, ReadString(root, "signature"));
+        Assert.False(root.ContainsKey("number"));
     }
 
     [Fact]
@@ -261,35 +264,6 @@ public sealed class AltchaServiceTests
         Assert.Equal(1, successes);
     }
 
-
-    [Fact]
-    public async Task ValidateResponseAsync_AcceptsWidgetLikeBase64JsonPayload()
-    {
-        var service = CreateService();
-        var challenge = service.GenerateChallenge();
-        var payload = CreateSolvedPayload(challenge);
-
-        var result = await service.ValidateResponseAsync(payload);
-
-        Assert.True(result.IsValid);
-        Assert.Equal(AltchaValidationError.None, result.Error);
-    }
-
-    [Fact]
-    public async Task ValidateResponseAsync_RejectsReplay()
-    {
-        var service = CreateService();
-        var challenge = service.GenerateChallenge();
-        var payload = CreateSolvedPayload(challenge);
-
-        var first = await service.ValidateResponseAsync(payload);
-        var second = await service.ValidateResponseAsync(payload);
-
-        Assert.True(first.IsValid);
-        Assert.False(second.IsValid);
-        Assert.Equal(AltchaValidationError.ReplayDetected, second.Error);
-    }
-
     [Theory]
     [InlineData("not base64", AltchaValidationError.InvalidBase64)]
     [InlineData("e2JhZA==", AltchaValidationError.InvalidJson)]
@@ -420,7 +394,7 @@ public sealed class AltchaServiceTests
 
     private static string EncodePayload(string algorithm, string challenge, int number, string salt, string signature)
     {
-        var json = JsonSerializer.Serialize(new Dictionary<string, object?>
+        var json = SerializeJson(new Dictionary<string, object?>
         {
             ["algorithm"] = algorithm,
             ["challenge"] = challenge,
@@ -430,6 +404,41 @@ public sealed class AltchaServiceTests
         });
 
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+    }
+
+    private static Dictionary<string, object?> ParseJsonObject(string json)
+    {
+#if NET48
+        var values = new JavaScriptSerializer().DeserializeObject(json) as Dictionary<string, object>;
+        return values?.ToDictionary(item => item.Key, item => (object?)item.Value)
+            ?? new Dictionary<string, object?>();
+#else
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.EnumerateObject().ToDictionary(
+            item => item.Name,
+            item => item.Value.ValueKind == JsonValueKind.Number
+                ? (object?)item.Value.GetInt32()
+                : item.Value.GetString());
+#endif
+    }
+
+    private static string SerializeJson(Dictionary<string, object?> values)
+    {
+#if NET48
+        return new JavaScriptSerializer().Serialize(values);
+#else
+        return JsonSerializer.Serialize(values);
+#endif
+    }
+
+    private static string? ReadString(Dictionary<string, object?> values, string key)
+    {
+        return values.TryGetValue(key, out var value) ? Convert.ToString(value) : null;
+    }
+
+    private static int ReadInt32(Dictionary<string, object?> values, string key)
+    {
+        return values.TryGetValue(key, out var value) ? Convert.ToInt32(value) : 0;
     }
 
     private static string Sha256Hex(string value)

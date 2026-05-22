@@ -7,12 +7,14 @@
 - Added the optional `Altcha.Net.AspNetCore` integration package with DI registration, Minimal API challenge mapping and an `IDistributedCache` replay store.
 - Added an ASP.NET Core Minimal API example.
 - Added additional validation and replay tests.
+- Removed the experimental async validation and replay-store API.
 
 ### Compatibility
 
-- The core `Altcha.Net` public API is unchanged.
 - The core package remains independent from ASP.NET Core dependencies.
 - `Altcha.Net.AspNetCore` targets modern .NET only.
+- The `.NET Framework 4.8` target no longer depends on `System.Text.Json` or `Microsoft.Bcl.AsyncInterfaces`.
+- The `.NET Standard 2.0` target now references `System.Text.Json` `8.0.6`; `.NET 10` uses the shared framework.
 
 ### Security notes
 

@@ -193,13 +193,13 @@ public sealed class AltchaAspNetCoreTests
     }
 
     [Fact]
-    public async Task DistributedCacheReplayStoreAsync_RejectsReplayAfterFirstStore()
+    public void DistributedCacheReplayStore_RejectsReplayAfterFirstStore()
     {
         IDistributedCache cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
         var store = new DistributedCacheAltchaReplayStore(cache);
 
-        var first = await store.TryStoreOnceAsync("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
-        var second = await store.TryStoreOnceAsync("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
+        var first = store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
+        var second = store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1));
 
         Assert.True(first);
         Assert.False(second);
@@ -220,14 +220,13 @@ public sealed class AltchaAspNetCoreTests
     }
 
     [Fact]
-    public async Task DistributedCacheReplayStoreAsync_RejectsExpiredAndBlankKeys()
+    public void DistributedCacheReplayStore_RejectsExpiredAndBlankKeys()
     {
         IDistributedCache cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
         var store = new DistributedCacheAltchaReplayStore(cache);
 
-        Assert.False(await store.TryStoreOnceAsync("expired", DateTimeOffset.UtcNow.AddSeconds(-1)));
-        await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await store.TryStoreOnceAsync(" ", DateTimeOffset.UtcNow.AddMinutes(1)));
+        Assert.False(store.TryStoreOnce("expired", DateTimeOffset.UtcNow.AddSeconds(-1)));
+        Assert.Throws<ArgumentException>(() => store.TryStoreOnce(" ", DateTimeOffset.UtcNow.AddMinutes(1)));
     }
 
     [Fact]
@@ -243,12 +242,12 @@ public sealed class AltchaAspNetCoreTests
         var t1 = Task.Run(async () =>
         {
             await gate.Task;
-            return await worker1.TryStoreOnceAsync("shared-challenge", expiresAt);
+            return worker1.TryStoreOnce("shared-challenge", expiresAt);
         });
         var t2 = Task.Run(async () =>
         {
             await gate.Task;
-            return await worker2.TryStoreOnceAsync("shared-challenge", expiresAt);
+            return worker2.TryStoreOnce("shared-challenge", expiresAt);
         });
 
         gate.SetResult();
@@ -272,12 +271,12 @@ public sealed class AltchaAspNetCoreTests
         var t1 = Task.Run(async () =>
         {
             await gate.Task;
-            return await worker1.TryStoreOnceAsync("shared-challenge", expiresAt);
+            return worker1.TryStoreOnce("shared-challenge", expiresAt);
         });
         var t2 = Task.Run(async () =>
         {
             await gate.Task;
-            return await worker2.TryStoreOnceAsync("shared-challenge", expiresAt);
+            return worker2.TryStoreOnce("shared-challenge", expiresAt);
         });
 
         gate.SetResult();

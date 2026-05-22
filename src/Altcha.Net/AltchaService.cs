@@ -1,8 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Altcha.Net;
 
@@ -36,32 +33,6 @@ public sealed class AltchaService
 
     public AltchaValidationResult ValidateResponse(string? altchaFormValue)
     {
-        return ValidateResponseCore(
-            altchaFormValue,
-            (challenge, expiresAt, _) => new ValueTask<bool>(_replayStore.TryStoreOnce(challenge, expiresAt)),
-            CancellationToken.None).GetAwaiter().GetResult();
-    }
-
-    public ValueTask<AltchaValidationResult> ValidateResponseAsync(string? altchaFormValue, CancellationToken ct = default)
-    {
-        return ValidateResponseCore(altchaFormValue, TryStoreReplayAsync, ct);
-    }
-
-    private ValueTask<bool> TryStoreReplayAsync(string challenge, DateTimeOffset expiresAt, CancellationToken ct)
-    {
-        if (_replayStore is IAltchaReplayStoreAsync asyncReplayStore)
-        {
-            return asyncReplayStore.TryStoreOnceAsync(challenge, expiresAt, ct);
-        }
-
-        return new ValueTask<bool>(_replayStore.TryStoreOnce(challenge, expiresAt));
-    }
-
-    private async ValueTask<AltchaValidationResult> ValidateResponseCore(
-        string? altchaFormValue,
-        Func<string, DateTimeOffset, CancellationToken, ValueTask<bool>> storeReplay,
-        CancellationToken ct)
-    {
         if (string.IsNullOrWhiteSpace(altchaFormValue))
         {
             return AltchaValidationResult.Failure(AltchaValidationError.MissingPayload);
@@ -72,16 +43,7 @@ public sealed class AltchaService
             return AltchaValidationResult.Failure(AltchaValidationError.InvalidBase64);
         }
 
-        AltchaPayload? payload;
-        try
-        {
-            payload = JsonSerializer.Deserialize<AltchaPayload>(json, AltchaJson.Options);
-        }
-        catch (JsonException)
-        {
-            return AltchaValidationResult.Failure(AltchaValidationError.InvalidJson);
-        }
-        catch (NotSupportedException)
+        if (!AltchaJson.TryDeserializePayload(json, out var payload))
         {
             return AltchaValidationResult.Failure(AltchaValidationError.InvalidJson);
         }
@@ -136,7 +98,7 @@ public sealed class AltchaService
             return AltchaValidationResult.Failure(AltchaValidationError.InvalidProofOfWork);
         }
 
-        if (!await storeReplay(challenge, expirationWithSkew, ct).ConfigureAwait(false))
+        if (!_replayStore.TryStoreOnce(challenge, expirationWithSkew))
         {
             return AltchaValidationResult.Failure(AltchaValidationError.ReplayDetected);
         }

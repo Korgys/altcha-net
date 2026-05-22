@@ -1,12 +1,10 @@
-using System.Threading;
-using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Caching.Distributed;
 
 namespace Altcha.Net.AspNetCore;
 
-public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore, IAltchaReplayStoreAsync
+public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
 {
     private const string CacheValue = "1";
     private readonly IDistributedCache _cache;
@@ -66,40 +64,6 @@ public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore, IAlt
         {
             AbsoluteExpiration = expiresAt
         });
-
-        return true;
-    }
-
-    public async ValueTask<bool> TryStoreOnceAsync(string key, DateTimeOffset expiresAt, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            throw new ArgumentException("The replay key is required.", nameof(key));
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        if (expiresAt <= now)
-        {
-            return false;
-        }
-
-        var cacheKey = _keyPrefix + HashKey(key);
-
-        if (_atomicStore != null)
-        {
-            return _atomicStore.TryStoreOnceAtomic(cacheKey, expiresAt);
-        }
-
-        var existing = await _cache.GetStringAsync(cacheKey, ct).ConfigureAwait(false);
-        if (existing != null)
-        {
-            return false;
-        }
-
-        await _cache.SetStringAsync(cacheKey, CacheValue, new DistributedCacheEntryOptions
-        {
-            AbsoluteExpiration = expiresAt
-        }, ct).ConfigureAwait(false);
 
         return true;
     }

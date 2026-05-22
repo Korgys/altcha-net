@@ -22,6 +22,8 @@ Package ASP.NET Core optionnel:
 dotnet add package Altcha.Net.AspNetCore
 ```
 
+La cible `.NET Framework 4.8` n'ajoute pas `System.Text.Json` ni `Microsoft.Bcl.AsyncInterfaces`. La cible `.NET Standard 2.0` reference `System.Text.Json` sur la ligne `8.0.x` (`8.0.6`); `.NET 10` utilise le framework partage.
+
 ## ASP.NET Core quick start
 
 ```csharp
@@ -96,13 +98,13 @@ app.MapAltchaChallenge("/altcha/challenge", security =>
 ```
 
 
-Exemple Minimal API pour valider un formulaire avec la nouvelle API asynchrone:
+Exemple Minimal API pour valider un formulaire:
 
 ```csharp
 app.MapPost("/contact", async (HttpRequest request, AltchaService altchaService, CancellationToken ct) =>
 {
     var form = await request.ReadFormAsync(ct);
-    var result = await altchaService.ValidateResponseAsync(form["altcha"], ct);
+    var result = altchaService.ValidateResponse(form["altcha"]);
 
     if (!result.IsValid)
     {
