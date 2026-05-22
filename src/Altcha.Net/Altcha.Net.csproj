@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Altcha.Net</PackageId>
-    <Version>0.1.0</Version>
+    <Version>1.1.0</Version>
     <Authors>Korgys</Authors>
     <Company>Korgys</Company>
     <Description>Self-hosted ALTCHA proof-of-work validation for .NET Framework, .NET Standard and modern .NET applications.</Description>
