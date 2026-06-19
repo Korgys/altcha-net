@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Security / Hardening
+
+- Added a configurable maximum ALTCHA payload length to reject oversized payloads before Base64 decoding.
+- Made validation time injectable internally to keep expiry-related tests deterministic.
+- Cleaned unsupported algorithm error messages.
+
 ### Maintenance
 
 - Centralized common MSBuild properties and NuGet package versions.

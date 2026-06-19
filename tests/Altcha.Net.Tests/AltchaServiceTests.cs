@@ -67,8 +67,9 @@ public sealed class AltchaServiceTests
     [Fact]
     public void ValidateResponse_AcceptsExpireSaltAlias()
     {
-        var service = CreateService();
-        var salt = "abcdef?expire=" + DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
+        var clock = new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var service = CreateService(clock: clock);
+        var salt = "abcdef?expire=" + clock.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
@@ -77,6 +78,18 @@ public sealed class AltchaServiceTests
 
         Assert.True(result.IsValid);
         Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
+    public void GenerateChallenge_UsesClockForExpiresTimestamp()
+    {
+        var clock = new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var service = CreateService(clock: clock);
+        var expectedExpires = clock.UtcNow.AddMinutes(2).ToUnixTimeSeconds();
+
+        var challenge = service.GenerateChallenge();
+
+        Assert.Contains("?expires=" + expectedExpires + "&", challenge.Salt);
     }
 
     [Fact]
@@ -125,8 +138,9 @@ public sealed class AltchaServiceTests
     [Fact]
     public void ValidateResponse_RejectsExpiredChallenge()
     {
-        var service = CreateService();
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds() + "&";
+        var clock = new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var service = CreateService(clock: clock);
+        var salt = "abcdef?expires=" + clock.UtcNow.AddMinutes(-1).ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
@@ -141,14 +155,16 @@ public sealed class AltchaServiceTests
     [Fact]
     public void ValidateResponse_AcceptsChallengeJustBeforeExpirySkewLimit()
     {
+        var expiresAt = new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var clock = new FakeClock(expiresAt.AddSeconds(5).AddTicks(-1));
         var service = CreateService(new AltchaOptions
         {
             SecretKey = Secret,
             ChallengeExpiry = TimeSpan.FromMinutes(2),
             AllowedClockSkew = TimeSpan.FromSeconds(5),
             Complexity = new AltchaComplexity(0, 5)
-        });
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-2).ToUnixTimeSeconds() + "&";
+        }, clock);
+        var salt = "abcdef?expires=" + expiresAt.ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
@@ -162,14 +178,16 @@ public sealed class AltchaServiceTests
     [Fact]
     public void ValidateResponse_RejectsChallengeJustAfterExpirySkewLimit()
     {
+        var expiresAt = new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var clock = new FakeClock(expiresAt.AddSeconds(5));
         var service = CreateService(new AltchaOptions
         {
             SecretKey = Secret,
             ChallengeExpiry = TimeSpan.FromMinutes(2),
             AllowedClockSkew = TimeSpan.FromSeconds(5),
             Complexity = new AltchaComplexity(0, 5)
-        });
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddSeconds(-10).ToUnixTimeSeconds() + "&";
+        }, clock);
+        var salt = "abcdef?expires=" + expiresAt.ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
@@ -183,8 +201,9 @@ public sealed class AltchaServiceTests
     [Fact]
     public void ValidateResponse_RejectsInvalidProofOfWork()
     {
-        var service = CreateService();
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
+        var clock = new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var service = CreateService(clock: clock);
+        var salt = "abcdef?expires=" + clock.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 2, salt, signature);
@@ -200,8 +219,9 @@ public sealed class AltchaServiceTests
     [InlineData(6)]
     public void ValidateResponse_RejectsNumberOutsideConfiguredRange(int number)
     {
-        var service = CreateService();
-        var salt = "abcdef?expires=" + DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
+        var clock = new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var service = CreateService(clock: clock);
+        var salt = "abcdef?expires=" + clock.UtcNow.AddMinutes(1).ToUnixTimeSeconds() + "&";
         var challengeHash = Sha256Hex(salt + number);
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, number, salt, signature);
@@ -293,6 +313,23 @@ public sealed class AltchaServiceTests
     }
 
     [Fact]
+    public void ValidateResponse_RejectsPayloadTooLarge()
+    {
+        var service = CreateService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            MaxPayloadLength = 256,
+            Complexity = new AltchaComplexity(0, 5)
+        });
+        var payload = new string('!', 257);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.PayloadTooLarge, result.Error);
+    }
+
+    [Fact]
     public void ValidateResponse_RejectsUnsupportedAlgorithm()
     {
         var payload = EncodePayload("SHA-512", "abc", 1, "salt?expires=9999999999&", "signature");
@@ -367,7 +404,21 @@ public sealed class AltchaServiceTests
         Assert.Equal("AllowedClockSkew", exception.ParamName);
     }
 
-    private static AltchaService CreateService(AltchaOptions? options = null)
+    [Theory]
+    [InlineData(255)]
+    [InlineData(65537)]
+    public void Constructor_RejectsInvalidMaxPayloadLength(int maxPayloadLength)
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new AltchaService(new AltchaOptions
+        {
+            SecretKey = Secret,
+            MaxPayloadLength = maxPayloadLength
+        }));
+
+        Assert.Equal("MaxPayloadLength", exception.ParamName);
+    }
+
+    private static AltchaService CreateService(AltchaOptions? options = null, IAltchaClock? clock = null)
     {
         options ??= new AltchaOptions
         {
@@ -376,7 +427,9 @@ public sealed class AltchaServiceTests
             Complexity = new AltchaComplexity(0, 5)
         };
 
-        return new AltchaService(options, new MemoryAltchaReplayStore());
+        return clock == null
+            ? new AltchaService(options, new MemoryAltchaReplayStore())
+            : new AltchaService(options, new MemoryAltchaReplayStore(), clock);
     }
 
     private static string CreateSolvedPayload(AltchaChallenge challenge, string? signature = null, string? salt = null)
@@ -456,5 +509,15 @@ public sealed class AltchaServiceTests
     private static string ToHex(byte[] bytes)
     {
         return string.Concat(bytes.Select(b => b.ToString("x2")));
+    }
+
+    private sealed class FakeClock : IAltchaClock
+    {
+        public FakeClock(DateTimeOffset utcNow)
+        {
+            UtcNow = utcNow;
+        }
+
+        public DateTimeOffset UtcNow { get; set; }
     }
 }

@@ -13,5 +13,6 @@ public enum AltchaValidationError
     Expired,
     InvalidSignature,
     InvalidProofOfWork,
-    ReplayDetected
+    ReplayDetected,
+    PayloadTooLarge
 }

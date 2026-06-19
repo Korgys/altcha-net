@@ -2,6 +2,9 @@ namespace Altcha.Net;
 
 public sealed class AltchaOptions
 {
+    private const int MinPayloadLength = 256;
+    private const int MaxPayloadLengthLimit = 65536;
+
     public string SecretKey { get; set; } = string.Empty;
 
     public TimeSpan ChallengeExpiry { get; set; } = TimeSpan.FromMinutes(2);
@@ -13,6 +16,8 @@ public sealed class AltchaOptions
     public string Algorithm { get; set; } = AltchaAlgorithms.Sha256;
 
     public int SaltLength { get; set; } = 12;
+
+    public int MaxPayloadLength { get; set; } = 4096;
 
     internal void Validate()
     {
@@ -33,7 +38,7 @@ public sealed class AltchaOptions
 
         if (!string.Equals(Algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))
         {
-            throw new NotSupportedException("Only SHA-256 is supported by this MVP.");
+            throw new NotSupportedException("Only SHA-256 is currently supported.");
         }
 
         if (Complexity == null)
@@ -44,6 +49,11 @@ public sealed class AltchaOptions
         if (SaltLength < 8 || SaltLength > 64)
         {
             throw new ArgumentOutOfRangeException(nameof(SaltLength), "The salt length must be between 8 and 64 bytes.");
+        }
+
+        if (MaxPayloadLength < MinPayloadLength || MaxPayloadLength > MaxPayloadLengthLimit)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxPayloadLength), "The maximum payload length must be between 256 and 65536 characters.");
         }
     }
 }

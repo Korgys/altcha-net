@@ -7,6 +7,7 @@ public sealed class AltchaService
 {
     private readonly AltchaOptions _options;
     private readonly IAltchaReplayStore _replayStore;
+    private readonly IAltchaClock _clock;
 
     public AltchaService(AltchaOptions options)
         : this(options, new MemoryAltchaReplayStore())
@@ -14,15 +15,21 @@ public sealed class AltchaService
     }
 
     public AltchaService(AltchaOptions options, IAltchaReplayStore replayStore)
+        : this(options, replayStore, new SystemAltchaClock())
+    {
+    }
+
+    internal AltchaService(AltchaOptions options, IAltchaReplayStore replayStore, IAltchaClock clock)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _options.Validate();
         _replayStore = replayStore ?? throw new ArgumentNullException(nameof(replayStore));
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
     public AltchaChallenge GenerateChallenge()
     {
-        var expires = DateTimeOffset.UtcNow.Add(_options.ChallengeExpiry).ToUnixTimeSeconds();
+        var expires = _clock.UtcNow.Add(_options.ChallengeExpiry).ToUnixTimeSeconds();
         var salt = AltchaCrypto.RandomHex(_options.SaltLength) + "?expires=" + expires.ToString(CultureInfo.InvariantCulture) + "&";
         var number = AltchaCrypto.RandomInt(_options.Complexity.MinNumber, _options.Complexity.MaxNumber);
         var challenge = AltchaCrypto.HashHex(_options.Algorithm, salt + number.ToString(CultureInfo.InvariantCulture));
@@ -36,6 +43,11 @@ public sealed class AltchaService
         if (string.IsNullOrWhiteSpace(altchaFormValue))
         {
             return AltchaValidationResult.Failure(AltchaValidationError.MissingPayload);
+        }
+
+        if (altchaFormValue!.Trim().Length > _options.MaxPayloadLength)
+        {
+            return AltchaValidationResult.Failure(AltchaValidationError.PayloadTooLarge);
         }
 
         if (!TryDecodePayload(altchaFormValue!, out var json))
@@ -81,7 +93,7 @@ public sealed class AltchaService
         }
 
         var expirationWithSkew = expiresAt.Add(_options.AllowedClockSkew);
-        if (DateTimeOffset.UtcNow >= expirationWithSkew)
+        if (_clock.UtcNow >= expirationWithSkew)
         {
             return AltchaValidationResult.Failure(AltchaValidationError.Expired);
         }

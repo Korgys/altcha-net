@@ -46,7 +46,7 @@ internal static class AltchaCrypto
     {
         if (!string.Equals(algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))
         {
-            throw new NotSupportedException("Only SHA-256 is supported by this MVP.");
+            throw new NotSupportedException("Only SHA-256 is currently supported.");
         }
 
         using (var sha = SHA256.Create())
@@ -59,7 +59,7 @@ internal static class AltchaCrypto
     {
         if (!string.Equals(algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))
         {
-            throw new NotSupportedException("Only SHA-256 is supported by this MVP.");
+            throw new NotSupportedException("Only SHA-256 is currently supported.");
         }
 
         using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret)))
