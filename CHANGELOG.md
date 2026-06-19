@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Maintenance
+
+- Centralized common MSBuild properties and NuGet package versions.
+- Simplified solution configurations to `Debug|Any CPU` and `Release|Any CPU`.
+
 ### Features
 
 - Added the optional `Altcha.Net.AspNetCore` integration package with DI registration, Minimal API challenge mapping and an `IDistributedCache` replay store.

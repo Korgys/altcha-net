@@ -2,23 +2,10 @@
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <PackageId>Altcha.Net.AspNetCore</PackageId>
     <Version>1.1.0</Version>
-    <Authors>Korgys</Authors>
-    <Company>Korgys</Company>
     <Description>Optional ASP.NET Core integration helpers for Altcha.Net.</Description>
     <PackageTags>altcha;captcha;proof-of-work;aspnetcore;dotnet;security</PackageTags>
-    <PackageProjectUrl>https://github.com/korgys/altcha-net</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/korgys/altcha-net</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
