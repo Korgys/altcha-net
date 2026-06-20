@@ -12,6 +12,9 @@
 ### Maintenance
 
 - Centralized common MSBuild properties and NuGet package versions.
+- Optimized internal cryptographic helpers while preserving challenge and validation behavior.
+- Reduced repeated secret encoding during HMAC validation.
+- Used native fixed-time comparison APIs where available.
 - Simplified solution configurations to `Debug|Any CPU` and `Release|Any CPU`.
 
 ### Tests

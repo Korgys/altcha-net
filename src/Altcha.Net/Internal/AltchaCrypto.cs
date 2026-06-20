@@ -1,4 +1,7 @@
 using System.Globalization;
+#if NET10_0_OR_GREATER
+using System.Runtime.InteropServices;
+#endif
 using System.Security.Cryptography;
 using System.Text;
 
@@ -9,10 +12,14 @@ internal static class AltchaCrypto
     public static string RandomHex(int byteLength)
     {
         var bytes = new byte[byteLength];
+#if NET10_0_OR_GREATER
+        RandomNumberGenerator.Fill(bytes);
+#else
         using (var random = RandomNumberGenerator.Create())
         {
             random.GetBytes(bytes);
         }
+#endif
 
         return ToHex(bytes);
     }
@@ -24,10 +31,28 @@ internal static class AltchaCrypto
             throw new ArgumentOutOfRangeException(nameof(maxInclusive));
         }
 
+#if NET10_0_OR_GREATER
+        if (maxInclusive < int.MaxValue)
+        {
+            return RandomNumberGenerator.GetInt32(minInclusive, maxInclusive + 1);
+        }
+#endif
+
         var range = (uint)((long)maxInclusive - minInclusive + 1);
         var limit = uint.MaxValue - (uint.MaxValue % range);
         var bytes = new byte[4];
 
+#if NET10_0_OR_GREATER
+        while (true)
+        {
+            RandomNumberGenerator.Fill(bytes);
+            var value = BitConverter.ToUInt32(bytes, 0);
+            if (value < limit)
+            {
+                return minInclusive + (int)(value % range);
+            }
+        }
+#else
         using (var random = RandomNumberGenerator.Create())
         {
             while (true)
@@ -40,14 +65,12 @@ internal static class AltchaCrypto
                 }
             }
         }
+#endif
     }
 
     public static string HashHex(string algorithm, string value)
     {
-        if (!string.Equals(algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))
-        {
-            throw new NotSupportedException("Only SHA-256 is currently supported.");
-        }
+        EnsureSha256(algorithm);
 
         using (var sha = SHA256.Create())
         {
@@ -57,15 +80,14 @@ internal static class AltchaCrypto
 
     public static string HmacHex(string algorithm, string value, string secret)
     {
-        if (!string.Equals(algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))
-        {
-            throw new NotSupportedException("Only SHA-256 is currently supported.");
-        }
+        EnsureSha256(algorithm);
+        return HmacSha256Hex(value, Encoding.UTF8.GetBytes(secret));
+    }
 
-        using (var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret)))
-        {
-            return ToHex(hmac.ComputeHash(Encoding.UTF8.GetBytes(value)));
-        }
+    public static string HmacHex(string algorithm, string value, byte[] secretBytes)
+    {
+        EnsureSha256(algorithm);
+        return HmacSha256Hex(value, secretBytes);
     }
 
     public static bool FixedTimeEquals(string left, string right)
@@ -75,6 +97,11 @@ internal static class AltchaCrypto
             return false;
         }
 
+#if NET10_0_OR_GREATER
+        return CryptographicOperations.FixedTimeEquals(
+            MemoryMarshal.AsBytes(left.AsSpan()),
+            MemoryMarshal.AsBytes(right.AsSpan()));
+#else
         var difference = 0;
         for (var i = 0; i < left.Length; i++)
         {
@@ -82,6 +109,23 @@ internal static class AltchaCrypto
         }
 
         return difference == 0;
+#endif
+    }
+
+    private static void EnsureSha256(string algorithm)
+    {
+        if (!string.Equals(algorithm, AltchaAlgorithms.Sha256, StringComparison.Ordinal))
+        {
+            throw new NotSupportedException("Only SHA-256 is currently supported.");
+        }
+    }
+
+    private static string HmacSha256Hex(string value, byte[] secretBytes)
+    {
+        using (var hmac = new HMACSHA256(secretBytes))
+        {
+            return ToHex(hmac.ComputeHash(Encoding.UTF8.GetBytes(value)));
+        }
     }
 
     private static string ToHex(byte[] bytes)

@@ -18,6 +18,41 @@ public sealed class AltchaServiceTests
     private const string InteropSignature = "87b3b55c7f36cf4176bccaa2e7b6b8364252a6188740ffb880619cc75c08d99b";
 
     [Fact]
+    public void HashHex_ReturnsExpectedSha256()
+    {
+        var hash = AltchaCrypto.HashHex("SHA-256", InteropSalt + InteropNumber.ToString());
+
+        Assert.Equal(InteropChallenge, hash);
+    }
+
+    [Fact]
+    public void HmacHex_ReturnsExpectedSha256Signature()
+    {
+        var signature = AltchaCrypto.HmacHex("SHA-256", InteropChallenge, Encoding.UTF8.GetBytes(InteropSecret));
+
+        Assert.Equal(InteropSignature, signature);
+        Assert.Equal(AltchaCrypto.HmacHex("SHA-256", InteropChallenge, InteropSecret), signature);
+    }
+
+    [Fact]
+    public void RandomInt_ReturnsValuesWithinInclusiveBounds()
+    {
+        for (var i = 0; i < 256; i++)
+        {
+            var value = AltchaCrypto.RandomInt(2, 4);
+
+            Assert.InRange(value, 2, 4);
+        }
+    }
+
+    [Fact]
+    public void FixedTimeEquals_ReturnsExpectedComparisonResult()
+    {
+        Assert.True(AltchaCrypto.FixedTimeEquals(InteropChallenge, InteropChallenge));
+        Assert.False(AltchaCrypto.FixedTimeEquals(InteropChallenge, "0" + InteropChallenge.Substring(1)));
+    }
+
+    [Fact]
     public void GenerateChallenge_ReturnsWidgetCompatibleChallenge()
     {
         var service = CreateService();
