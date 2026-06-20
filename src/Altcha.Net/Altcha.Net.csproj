@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFrameworks>net48;netstandard2.0;net10.0</TargetFrameworks>
     <PackageId>Altcha.Net</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Description>Self-hosted ALTCHA proof-of-work validation for .NET Framework, .NET Standard and modern .NET applications.</Description>
     <PackageTags>altcha;captcha;proof-of-work;aspnet;dotnet;security</PackageTags>
   </PropertyGroup>
