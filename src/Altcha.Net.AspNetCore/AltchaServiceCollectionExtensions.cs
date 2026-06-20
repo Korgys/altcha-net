@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using StackExchange.Redis;
 
 namespace Altcha.Net.AspNetCore;
 
@@ -63,6 +64,24 @@ public static class AltchaServiceCollectionExtensions
 
             return new DistributedCacheAltchaReplayStore(cache);
         });
+        return services;
+    }
+
+    public static IServiceCollection AddRedisAltchaReplayStore(
+        this IServiceCollection services,
+        Func<IServiceProvider, IDatabase> databaseFactory)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        if (databaseFactory == null)
+        {
+            throw new ArgumentNullException(nameof(databaseFactory));
+        }
+
+        services.AddSingleton<IAtomicAltchaReplayStore>(sp => new RedisAltchaReplayStore(databaseFactory(sp)));
         return services;
     }
 

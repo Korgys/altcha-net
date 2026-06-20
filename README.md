@@ -52,17 +52,25 @@ builder.Services.AddDistributedAltchaReplayStore();
 Mode atomique strict (recommande en multi-instance) avec un backend qui supporte une operation de type `SET key value NX EX`:
 
 ```csharp
+using StackExchange.Redis;
+
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("Redis");
 });
 
-builder.Services.AddSingleton<IAtomicAltchaReplayStore, RedisAtomicAltchaReplayStore>();
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis")!));
+
 builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
+builder.Services.AddRedisAltchaReplayStore(sp =>
+    sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase());
 builder.Services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic);
 ```
 
-`DistributedCacheAltchaReplayStore` utilise `IDistributedCache`. Cette abstraction ne garantit pas une insertion atomique pour tous les providers.
+`MemoryAltchaReplayStore` convient a une seule instance. `DistributedCacheAltchaReplayStore` en mode `BestEffort` utilise `IDistributedCache`; ses garanties dependent du provider. `RedisAltchaReplayStore` utilise Redis `SET NX` avec expiration et doit etre prefere en multi-instance quand une protection anti-replay stricte est requise.
+
+Le secret ALTCHA doit rester cote serveur. ALTCHA reste une couche anti-abus, pas une solution anti-spam complete.
 
 ## Endpoint hardening
 
@@ -197,7 +205,7 @@ Le widget poste un champ de formulaire `altcha` contenant un JSON encode en Base
 - Utiliser un store partage en multi-instance.
 - Eviter `MemoryAltchaReplayStore` en production multi-serveur.
 - `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.BestEffort)` utilise `IDistributedCache` en fallback best effort: anti-replay non strictement atomique.
-- `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic)` exige `IAtomicAltchaReplayStore` et garantit un "insert-if-absent" atomique entre workers (ex: Redis `SET ... NX EX`).
+- `AddRedisAltchaReplayStore(...)` enregistre `RedisAltchaReplayStore`, puis `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic)` active l'insert-if-absent atomique Redis `SET NX` entre workers.
 
 ## Known limitations
 
@@ -205,7 +213,6 @@ Le widget poste un champ de formulaire `altcha` contenant un JSON encode en Base
 - Pas de spam filter API ALTCHA.
 - Proof-of-work uniquement.
 - SHA-256 uniquement.
-- Pas de Redis integre.
 - `IDistributedCache` ne fournit pas toujours une atomicite stricte.
 
 ## Not affiliated with ALTCHA

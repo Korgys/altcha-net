@@ -12,6 +12,11 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Reflection;
+using RedisDatabase = StackExchange.Redis.IDatabase;
+using RedisKey = StackExchange.Redis.RedisKey;
+using RedisValue = StackExchange.Redis.RedisValue;
+using RedisWhen = StackExchange.Redis.When;
 
 namespace Altcha.Net.AspNetCore.Tests;
 
@@ -94,6 +99,37 @@ public sealed class AltchaAspNetCoreTests
     }
 
     [Fact]
+    public void AddRedisAltchaReplayStore_RegistersAtomicStore()
+    {
+        var database = FakeRedisDatabase.Create(out _);
+        var services = new ServiceCollection();
+
+        services.AddRedisAltchaReplayStore(_ => database);
+
+        using var provider = services.BuildServiceProvider();
+        var store = provider.GetRequiredService<IAtomicAltchaReplayStore>();
+
+        Assert.IsType<RedisAltchaReplayStore>(store);
+        Assert.True(store.TryStoreOnceAtomic("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1)));
+    }
+
+    [Fact]
+    public void AddDistributedAltchaReplayStore_StrictAtomic_UsesRedisAtomicStore()
+    {
+        var database = FakeRedisDatabase.Create(out _);
+        var services = new ServiceCollection();
+        services.AddDistributedMemoryCache();
+        services.AddRedisAltchaReplayStore(_ => database);
+        services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic);
+
+        using var provider = services.BuildServiceProvider();
+        var store = provider.GetRequiredService<IAltchaReplayStore>();
+
+        Assert.True(store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1)));
+        Assert.False(store.TryStoreOnce("same-challenge", DateTimeOffset.UtcNow.AddMinutes(1)));
+    }
+
+    [Fact]
     public void ServiceCollectionExtensions_RejectInvalidArguments()
     {
         IServiceCollection? services = null;
@@ -105,6 +141,8 @@ public sealed class AltchaAspNetCoreTests
         Assert.Throws<ArgumentNullException>(() => services!.AddAltcha(configuration));
         Assert.Throws<ArgumentNullException>(() => validServices.AddAltcha((IConfiguration)null!));
         Assert.Throws<ArgumentNullException>(() => services!.AddDistributedAltchaReplayStore());
+        Assert.Throws<ArgumentNullException>(() => services!.AddRedisAltchaReplayStore(_ => null!));
+        Assert.Throws<ArgumentNullException>(() => validServices.AddRedisAltchaReplayStore(null!));
     }
 
     [Fact]
@@ -292,6 +330,83 @@ public sealed class AltchaAspNetCoreTests
         Assert.Equal(1, results.Count(v => v));
     }
 
+    [Fact]
+    public async Task DistributedCacheReplayStore_StrictAtomic_WithRedisStore_PreventsRaceAcrossWorkers()
+    {
+        var database = FakeRedisDatabase.Create(out _);
+        var atomic = new RedisAltchaReplayStore(database);
+        var worker1 = new DistributedCacheAltchaReplayStore(
+            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())), atomic);
+        var worker2 = new DistributedCacheAltchaReplayStore(
+            new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())), atomic);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var t1 = Task.Run(async () =>
+        {
+            await gate.Task;
+            return worker1.TryStoreOnce("shared-challenge", expiresAt);
+        });
+        var t2 = Task.Run(async () =>
+        {
+            await gate.Task;
+            return worker2.TryStoreOnce("shared-challenge", expiresAt);
+        });
+
+        gate.SetResult();
+        var results = await Task.WhenAll(t1, t2);
+
+        Assert.Equal(1, results.Count(v => v));
+    }
+
+    [Fact]
+    public void RedisAltchaReplayStore_StoresOnlyOnce()
+    {
+        var database = FakeRedisDatabase.Create(out var proxy);
+        var store = new RedisAltchaReplayStore(database);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        Assert.True(store.TryStoreOnceAtomic("same-challenge", expiresAt));
+        Assert.False(store.TryStoreOnceAtomic("same-challenge", expiresAt));
+        Assert.All(proxy.Calls, call => Assert.Equal(RedisWhen.NotExists, call.When));
+    }
+
+    [Fact]
+    public void RedisAltchaReplayStore_RejectsExpiredKey()
+    {
+        var database = FakeRedisDatabase.Create(out var proxy);
+        var store = new RedisAltchaReplayStore(database);
+
+        Assert.False(store.TryStoreOnceAtomic("expired", DateTimeOffset.UtcNow.AddSeconds(-1)));
+        Assert.Empty(proxy.Calls);
+    }
+
+    [Fact]
+    public void RedisAltchaReplayStore_RejectsBlankKey()
+    {
+        var database = FakeRedisDatabase.Create(out var proxy);
+        var store = new RedisAltchaReplayStore(database);
+
+        Assert.Throws<ArgumentException>(() => store.TryStoreOnceAtomic(" ", DateTimeOffset.UtcNow.AddMinutes(1)));
+        Assert.Empty(proxy.Calls);
+    }
+
+    [Fact]
+    public void RedisAltchaReplayStore_UsesExpiration()
+    {
+        var database = FakeRedisDatabase.Create(out var proxy);
+        var store = new RedisAltchaReplayStore(database);
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(2);
+
+        Assert.True(store.TryStoreOnceAtomic("same-challenge", expiresAt));
+
+        var call = Assert.Single(proxy.Calls);
+        Assert.Equal("same-challenge", call.Key);
+        Assert.Equal("1", call.Value);
+        Assert.Equal(RedisWhen.NotExists, call.When);
+        Assert.InRange(call.Expiry, TimeSpan.FromSeconds(110), TimeSpan.FromMinutes(2));
+    }
+
     private static HttpClient CreateClient(WebApplication app)
     {
         var server = app.Services.GetRequiredService<IServer>();
@@ -341,4 +456,43 @@ public sealed class AltchaAspNetCoreTests
             return Task.CompletedTask;
         }
     }
+
+    private class FakeRedisDatabase : DispatchProxy
+    {
+        private readonly ConcurrentDictionary<string, string> _backend = new();
+        private readonly ConcurrentQueue<RedisStringSetCall> _calls = new();
+
+        public IReadOnlyCollection<RedisStringSetCall> Calls => _calls.ToArray();
+
+        public static RedisDatabase Create(out FakeRedisDatabase proxy)
+        {
+            var database = DispatchProxy.Create<RedisDatabase, FakeRedisDatabase>();
+            proxy = (FakeRedisDatabase)(object)database;
+            return database;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name != nameof(RedisDatabase.StringSet) || args == null)
+            {
+                throw new NotSupportedException(targetMethod?.Name);
+            }
+
+            var key = args.OfType<RedisKey>().First().ToString();
+            var value = args.OfType<RedisValue>().First().ToString();
+            var expiry = args.OfType<TimeSpan>().FirstOrDefault();
+            var when = args.OfType<RedisWhen>().DefaultIfEmpty(RedisWhen.Always).First();
+            _calls.Enqueue(new RedisStringSetCall(key, value, expiry, when));
+
+            if (when == RedisWhen.NotExists)
+            {
+                return _backend.TryAdd(key, value);
+            }
+
+            _backend[key] = value;
+            return true;
+        }
+    }
+
+    private sealed record RedisStringSetCall(string Key, string Value, TimeSpan Expiry, RedisWhen When);
 }

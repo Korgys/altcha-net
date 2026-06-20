@@ -5,6 +5,7 @@
 ### Security / Hardening
 
 - Added a configurable maximum ALTCHA payload length to reject oversized payloads before Base64 decoding.
+- Added a strict distributed replay protection option for multi-instance deployments.
 - Made validation time injectable internally to keep expiry-related tests deterministic.
 - Cleaned unsupported algorithm error messages.
 
@@ -21,6 +22,7 @@
 
 ### Features
 
+- Added an optional Redis-backed atomic replay store for ASP.NET Core deployments using Redis `SET NX` with expiration, addressing the "Add atomic Redis replay store for ALTCHA validation" request.
 - Added the optional `Altcha.Net.AspNetCore` integration package with DI registration, Minimal API challenge mapping and an `IDistributedCache` replay store.
 - Added an ASP.NET Core Minimal API example.
 - Added additional validation and replay tests.
@@ -36,11 +38,10 @@
 ### Security notes
 
 - `DistributedCacheAltchaReplayStore` is suitable for shared cache deployments, but `IDistributedCache` does not guarantee atomic insert semantics for every provider.
-- A dedicated Redis implementation using an atomic `SET NX` pattern remains a future improvement.
+- `RedisAltchaReplayStore` uses an atomic Redis `SET NX` pattern with expiration for strict replay protection.
 
 ### Known limitations
 
-- The ASP.NET Core package does not add Redis directly.
 - The memory replay store remains single-instance only.
 
 ## 1.0.0
