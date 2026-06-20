@@ -20,10 +20,16 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            test-framework: net10.0
+            core-test-framework: net10.0
+            aspnetcore-test-framework: net10.0
             coverage: true
+          - os: ubuntu-latest
+            core-test-framework: ''
+            aspnetcore-test-framework: net8.0
+            coverage: false
           - os: windows-latest
-            test-framework: net48
+            core-test-framework: net48
+            aspnetcore-test-framework: ''
             coverage: false
 
     runs-on: ${{ matrix.os }}
@@ -93,8 +99,8 @@ jobs:
         run: dotnet build Altcha.Net.sln --no-restore --configuration Release
 
       - name: Test core
-        if: ${{ !matrix.coverage }}
-        run: dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj --no-build --configuration Release --framework ${{ matrix.test-framework }}
+        if: ${{ !matrix.coverage && matrix.core-test-framework != '' }}
+        run: dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj --no-build --configuration Release --framework ${{ matrix.core-test-framework }}
 
       - name: Test core with coverage
         if: ${{ matrix.coverage }}
@@ -102,18 +108,22 @@ jobs:
           dotnet test tests/Altcha.Net.Tests/Altcha.Net.Tests.csproj
           --no-build
           --configuration Release
-          --framework ${{ matrix.test-framework }}
+          --framework ${{ matrix.core-test-framework }}
           --results-directory TestResults
           --settings coverlet.runsettings
           --collect:"XPlat Code Coverage"
 
       - name: Test ASP.NET Core integration
+        if: ${{ !matrix.coverage && matrix.aspnetcore-test-framework != '' }}
+        run: dotnet test tests/Altcha.Net.AspNetCore.Tests/Altcha.Net.AspNetCore.Tests.csproj --no-build --configuration Release --framework ${{ matrix.aspnetcore-test-framework }}
+
+      - name: Test ASP.NET Core integration with coverage
         if: ${{ matrix.coverage }}
         run: >
           dotnet test tests/Altcha.Net.AspNetCore.Tests/Altcha.Net.AspNetCore.Tests.csproj
           --no-build
           --configuration Release
-          --framework net10.0
+          --framework ${{ matrix.aspnetcore-test-framework }}
           --results-directory TestResults
           --settings coverlet.runsettings
           --collect:"XPlat Code Coverage"

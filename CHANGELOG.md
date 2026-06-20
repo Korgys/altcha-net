@@ -13,6 +13,12 @@
 - Centralized common MSBuild properties and NuGet package versions.
 - Simplified solution configurations to `Debug|Any CPU` and `Release|Any CPU`.
 
+### Tests
+
+- Added deterministic ALTCHA interoperability fixtures for standard and URL-safe Base64 payloads.
+- Extended ASP.NET Core integration tests to cover both net8.0 and net10.0.
+- Strengthened validation edge-case coverage.
+
 ### Features
 
 - Added the optional `Altcha.Net.AspNetCore` integration package with DI registration, Minimal API challenge mapping and an `IDistributedCache` replay store.

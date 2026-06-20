@@ -11,6 +11,11 @@ namespace Altcha.Net.Tests;
 public sealed class AltchaServiceTests
 {
     private const string Secret = "unit-test-secret";
+    private const string InteropSecret = "interop-secret";
+    private const int InteropNumber = 3;
+    private const string InteropSalt = "interop-saltx?expires=4102444800&";
+    private const string InteropChallenge = "4d22a70265954f5ab4958921ecade4ad1c133db77ba225c645629ad3995338f6";
+    private const string InteropSignature = "87b3b55c7f36cf4176bccaa2e7b6b8364252a6188740ffb880619cc75c08d99b";
 
     [Fact]
     public void GenerateChallenge_ReturnsWidgetCompatibleChallenge()
@@ -64,6 +69,44 @@ public sealed class AltchaServiceTests
         Assert.Equal(AltchaValidationError.None, result.Error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ValidateResponse_AcceptsFixedInteropPayloads(bool urlSafe)
+    {
+        var service = CreateInteropService();
+        var json = CreateInteropJson(InteropNumber.ToString());
+        var payload = urlSafe
+            ? EncodeJsonAsUrlSafeBase64WithoutPadding(json)
+            : EncodeJsonAsBase64(json);
+
+        var result = service.ValidateResponse(payload);
+
+        if (urlSafe)
+        {
+            Assert.DoesNotContain("=", payload);
+        }
+        else
+        {
+            Assert.EndsWith("==", payload);
+        }
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_AcceptsFixedInteropPayloadWithNumberAsJsonString()
+    {
+        var service = CreateInteropService();
+        var payload = EncodeJsonAsBase64(CreateInteropJson("\"3\""));
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
     [Fact]
     public void ValidateResponse_AcceptsExpireSaltAlias()
     {
@@ -73,6 +116,19 @@ public sealed class AltchaServiceTests
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(AltchaValidationError.None, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_AcceptsUrlEncodedExpiresKeyInSalt()
+    {
+        var service = CreateService(clock: new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero)));
+        var salt = "abcdef?exp%69res=4102444800&";
+        var payload = CreateSolvedPayload(salt, 1);
 
         var result = service.ValidateResponse(payload);
 
@@ -104,6 +160,36 @@ public sealed class AltchaServiceTests
 
         Assert.False(result.IsValid);
         Assert.Equal(AltchaValidationError.InvalidSignature, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_RejectsFixedInteropPayloadWithInvalidSignature()
+    {
+        var service = CreateInteropService();
+        var payload = EncodeJsonAsBase64(CreateInteropJson(
+            InteropNumber.ToString(),
+            signature: "0" + InteropSignature.Substring(1)));
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.InvalidSignature, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_RejectsMalformedNumberString()
+    {
+        var service = CreateInteropService();
+        var payload = EncodeJsonAsBase64(CreateInteropJson("\"not-a-number\""));
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+#if NET48
+        Assert.Equal(AltchaValidationError.MalformedPayload, result.Error);
+#else
+        Assert.Equal(AltchaValidationError.InvalidJson, result.Error);
+#endif
     }
 
     [Fact]
@@ -243,6 +329,18 @@ public sealed class AltchaServiceTests
         var challengeHash = Sha256Hex(salt + "1");
         var signature = HmacSha256Hex(challengeHash, Secret);
         var payload = EncodePayload("SHA-256", challengeHash, 1, salt, signature);
+
+        var result = service.ValidateResponse(payload);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(AltchaValidationError.InvalidChallenge, result.Error);
+    }
+
+    [Fact]
+    public void ValidateResponse_RejectsSaltWithoutTrailingAmpersand()
+    {
+        var service = CreateService(clock: new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero)));
+        var payload = CreateSolvedPayload("abcdef?expires=4102444800", 1);
 
         var result = service.ValidateResponse(payload);
 
@@ -432,6 +530,16 @@ public sealed class AltchaServiceTests
             : new AltchaService(options, new MemoryAltchaReplayStore(), clock);
     }
 
+    private static AltchaService CreateInteropService()
+    {
+        return CreateService(new AltchaOptions
+        {
+            SecretKey = InteropSecret,
+            ChallengeExpiry = TimeSpan.FromMinutes(2),
+            Complexity = new AltchaComplexity(0, 5)
+        }, new FakeClock(new DateTimeOffset(2030, 1, 2, 3, 4, 5, TimeSpan.Zero)));
+    }
+
     private static string CreateSolvedPayload(AltchaChallenge challenge, string? signature = null, string? salt = null)
     {
         for (var number = 0; number <= challenge.MaxNumber; number++)
@@ -443,6 +551,21 @@ public sealed class AltchaServiceTests
         }
 
         throw new InvalidOperationException("The generated challenge could not be solved in the configured range.");
+    }
+
+    private static string CreateSolvedPayload(string salt, int number)
+    {
+        var challengeHash = Sha256Hex(salt + number);
+        var signature = HmacSha256Hex(challengeHash, Secret);
+        return EncodePayload("SHA-256", challengeHash, number, salt, signature);
+    }
+
+    private static string CreateInteropJson(string numberJson, string? signature = null)
+    {
+        return "{\"algorithm\":\"SHA-256\",\"challenge\":\"" + InteropChallenge +
+            "\",\"number\":" + numberJson +
+            ",\"salt\":\"" + InteropSalt +
+            "\",\"signature\":\"" + (signature ?? InteropSignature) + "\"}";
     }
 
     private static string EncodePayload(string algorithm, string challenge, int number, string salt, string signature)
@@ -457,6 +580,19 @@ public sealed class AltchaServiceTests
         });
 
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+    }
+
+    private static string EncodeJsonAsBase64(string json)
+    {
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+    }
+
+    private static string EncodeJsonAsUrlSafeBase64WithoutPadding(string json)
+    {
+        return EncodeJsonAsBase64(json)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 
     private static Dictionary<string, object?> ParseJsonObject(string json)

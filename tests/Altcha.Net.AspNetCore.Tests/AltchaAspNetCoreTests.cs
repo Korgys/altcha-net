@@ -1,9 +1,11 @@
 using System.Text.Json;
 using Altcha.Net.AspNetCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
@@ -109,7 +111,7 @@ public sealed class AltchaAspNetCoreTests
     public async Task MapAltchaChallenge_ReturnsChallengeJson()
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAltcha(options =>
         {
             options.SecretKey = "test-secret";
@@ -120,7 +122,7 @@ public sealed class AltchaAspNetCoreTests
         app.MapAltchaChallenge("/altcha/challenge");
         await app.StartAsync();
 
-        using var client = app.GetTestClient();
+        using var client = CreateClient(app);
 
         using var response = await client.GetAsync("/altcha/challenge");
         var json = await response.Content.ReadAsStringAsync();
@@ -141,7 +143,7 @@ public sealed class AltchaAspNetCoreTests
     public async Task MapAltchaChallenge_AppliesHostRestriction()
     {
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddAltcha(options =>
         {
             options.SecretKey = "test-secret";
@@ -156,9 +158,14 @@ public sealed class AltchaAspNetCoreTests
         });
         await app.StartAsync();
 
-        using var client = app.GetTestClient();
-        using var blocked = await client.GetAsync("http://blocked.test/altcha/challenge");
-        using var allowed = await client.GetAsync("http://allowed.test/altcha/challenge");
+        using var client = CreateClient(app);
+        using var blockedRequest = new HttpRequestMessage(HttpMethod.Get, "/altcha/challenge");
+        blockedRequest.Headers.Host = "blocked.test";
+        using var allowedRequest = new HttpRequestMessage(HttpMethod.Get, "/altcha/challenge");
+        allowedRequest.Headers.Host = "allowed.test";
+
+        using var blocked = await client.SendAsync(blockedRequest);
+        using var allowed = await client.SendAsync(allowedRequest);
 
         Assert.Equal(StatusCodes.Status404NotFound, (int)blocked.StatusCode);
         allowed.EnsureSuccessStatusCode();
@@ -283,6 +290,13 @@ public sealed class AltchaAspNetCoreTests
         var results = await Task.WhenAll(t1, t2);
 
         Assert.Equal(1, results.Count(v => v));
+    }
+
+    private static HttpClient CreateClient(WebApplication app)
+    {
+        var server = app.Services.GetRequiredService<IServer>();
+        var address = server.Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+        return new HttpClient { BaseAddress = new Uri(address) };
     }
 
     private sealed class InMemoryAtomicAltchaReplayStore(ConcurrentDictionary<string, DateTimeOffset> backend)
