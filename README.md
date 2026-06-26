@@ -4,27 +4,51 @@
 [![Build](https://github.com/Korgys/altcha-net/actions/workflows/ci.yml/badge.svg)](https://github.com/Korgys/altcha-net/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/Korgys/altcha-net.svg)](LICENSE)
 
-Altcha.Net est une librairie .NET open-source communautaire et non officielle pour utiliser ALTCHA en mode proof-of-work auto-heberge.
+**Altcha.Net** est une librairie .NET permettant d’intégrer [ALTCHA](https://altcha.org/) en mode proof-of-work auto-hébergé.
 
-Elle ne depend pas d'ALTCHA Sentinel, n'appelle aucune API ALTCHA externe et vise les applications modernes comme les sites legacy ASP.NET Framework 4.8.
+Elle permet de protéger des formulaires publics sans dépendre d’ALTCHA Sentinel, sans appel à une API externe, sans cookie de tracking et sans service tiers de CAPTCHA.
 
-Altcha.Net fournit un captcha proof-of-work simple. Ce n'est pas une solution anti-spam ou anti-bot complete.
+La librairie est compatible avec les applications ASP.NET Core modernes ainsi qu’avec les applications legacy ASP.NET jusqu'au Framework 4.8.0.
 
-## Install
+## Pourquoi utiliser Altcha.Net ?
+
+Altcha.Net répond à un besoin simple : ajouter une protection CAPTCHA légère, auto-hébergée et respectueuse de la vie privée dans une application .NET.
+
+Cas d’usage typiques :
+
+- formulaire de contact ;
+- inscription utilisateur ;
+- connexion ;
+- demande de devis ;
+- formulaire public exposé au spam ou aux abus automatisés.
+
+Altcha.Net fournit :
+
+- la génération de challenges ALTCHA côté serveur ;
+- la validation des réponses côté serveur ;
+- une protection anti-rejeu ;
+- une intégration ASP.NET Core ;
+- un usage possible dans des applications ASP.NET Framework 4.8.
+
+Altcha.Net est une couche de protection anti-abus basée sur du proof-of-work. Ce n’est pas une solution complète d’anti-spam, de modération ou de détection avancée de bots.
+
+## Installation
+
+Package principal :
 
 ```bash
 dotnet add package Altcha.Net
 ```
 
-Package ASP.NET Core optionnel:
+Intégration ASP.NET Core :
 
 ```bash
 dotnet add package Altcha.Net.AspNetCore
 ```
 
-La cible `.NET Framework 4.8` n'ajoute pas `System.Text.Json` ni `Microsoft.Bcl.AsyncInterfaces`. La cible `.NET Standard 2.0` reference `System.Text.Json` sur la ligne `8.0.x` (`8.0.6`); `.NET 10` utilise le framework partage.
+## Démarrage rapide avec ASP.NET Core
 
-## ASP.NET Core quick start
+Configurez Altcha.Net et exposez un endpoint de challenge :
 
 ```csharp
 using Altcha.Net;
@@ -38,20 +62,115 @@ builder.Services.AddAltcha(options =>
     options.Complexity = new AltchaComplexity(50000, 100000);
 });
 
+var app = builder.Build();
+
 app.MapAltchaChallenge("/altcha/challenge");
+
+app.Run();
 ```
 
-Pour utiliser un cache partage:
+Ajoutez le widget ALTCHA dans votre formulaire :
+
+```html
+<script async defer src="/scripts/altcha.min.js" type="module"></script>
+
+<form method="post" action="/contact">
+  <input name="email" type="email" required />
+  <textarea name="message" required></textarea>
+
+  <altcha-widget challenge="/altcha/challenge"></altcha-widget>
+
+  <button type="submit">Envoyer</button>
+</form>
+```
+
+Validez ensuite le champ `altcha` côté serveur :
+
+```csharp
+app.MapPost("/contact", async (
+    HttpRequest request,
+    AltchaService altchaService,
+    CancellationToken cancellationToken) =>
+{
+    var form = await request.ReadFormAsync(cancellationToken);
+
+    var result = await altchaService.ValidateResponseAsync(
+        form["altcha"],
+        cancellationToken);
+
+    if (!result.IsValid)
+    {
+        return Results.BadRequest(new
+        {
+            error = result.Error.ToString()
+        });
+    }
+
+    // Traitez le formulaire ici.
+
+    return Results.Ok();
+});
+```
+
+## Configuration
+
+Exemple `appsettings.json` :
+
+```json
+{
+  "Altcha": {
+    "SecretKey": "replace-with-a-secure-server-side-secret",
+    "ChallengeExpiry": "00:02:00",
+    "AllowedClockSkew": "00:00:10",
+    "Complexity": {
+      "MinNumber": 50000,
+      "MaxNumber": 100000
+    }
+  }
+}
+```
+
+Puis enregistrez la configuration :
+
+```csharp
+builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
+```
+
+Options principales :
+
+| Option             | Description                                                                                      | Valeur conseillée |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ----------------: |
+| `SecretKey`        | Clé serveur utilisée pour signer les challenges. Elle ne doit jamais être exposée au navigateur. |       Obligatoire |
+| `ChallengeExpiry`  | Durée de validité d’un challenge.                                                                |       `2 minutes` |
+| `AllowedClockSkew` | Tolérance aux petits écarts d’horloge entre serveurs.                                            |     `10 secondes` |
+| `Complexity`       | Plage de difficulté du proof-of-work. Plus la valeur est élevée, plus le client travaille.       |   `50000..100000` |
+| `SaltLength`       | Taille du sel aléatoire en octets.                                                               |              `12` |
+| `MaxPayloadLength` | Taille maximale acceptée pour le payload ALTCHA.                                                 |            `4096` |
+| `Algorithm`        | Algorithme utilisé pour le challenge.                                                            |         `SHA-256` |
+
+## Protection anti-rejeu
+
+Altcha.Net stocke les challenges déjà validés afin d’éviter leur réutilisation.
+
+Pour une application déployée sur une seule instance, le store mémoire suffit :
+
+```csharp
+builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
+```
+
+Pour utiliser un cache distribué ASP.NET Core :
 
 ```csharp
 builder.Services.AddDistributedMemoryCache();
+
 builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
 builder.Services.AddDistributedAltchaReplayStore();
 ```
 
-Mode atomique strict (recommande en multi-instance) avec un backend qui supporte une operation de type `SET key value NX EX`:
+Pour une application en production avec plusieurs instances, utilisez de préférence Redis avec une protection atomique stricte :
 
 ```csharp
+using Altcha.Net.AspNetCore;
 using StackExchange.Redis;
 
 builder.Services.AddStackExchangeRedisCache(options =>
@@ -63,26 +182,30 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis")!));
 
 builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
+
 builder.Services.AddRedisAltchaReplayStore(sp =>
     sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase());
-builder.Services.AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic);
+
+builder.Services.AddDistributedAltchaReplayStore(
+    DistributedAltchaReplayStoreMode.StrictAtomic);
 ```
 
-`MemoryAltchaReplayStore` convient a une seule instance. `DistributedCacheAltchaReplayStore` en mode `BestEffort` utilise `IDistributedCache`; ses garanties dependent du provider. `RedisAltchaReplayStore` utilise Redis `SET NX` avec expiration et doit etre prefere en multi-instance quand une protection anti-replay stricte est requise.
+Recommandation :
 
-Le secret ALTCHA doit rester cote serveur. ALTCHA reste une couche anti-abus, pas une solution anti-spam complete.
+| Déploiement                                | Store recommandé                                                                                                     |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Une seule instance                         | `MemoryAltchaReplayStore`                                                                                            |
+| Une seule instance avec cache ASP.NET Core | `DistributedCacheAltchaReplayStore`                                                                                  |
+| Plusieurs instances                        | Utilisez une solution custom avec votre couche de données habituelle avec une table pour stocker les défis et les IP |
 
-## Endpoint hardening
+## Sécuriser l’endpoint de challenge
 
-L'endpoint challenge peut etre durci avec des conventions optionnelles:
+L’endpoint de challenge est public. En production, il est recommandé de le protéger avec du rate limiting.
 
 ```csharp
-using Altcha.Net;
-using Altcha.Net.AspNetCore;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 
-builder.Services.AddAltcha(builder.Configuration.GetSection("Altcha"));
 builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("altcha-challenge", limiter =>
@@ -101,61 +224,45 @@ app.MapAltchaChallenge("/altcha/challenge", security =>
 {
     security.RateLimitingPolicyName = "altcha-challenge";
     security.AllowedHosts = ["example.com", "www.example.com"];
-    // Cache-Control: no-store est active par defaut.
 });
 ```
 
+L’en-tête `Cache-Control: no-store` est appliqué par défaut sur l’endpoint de challenge.
 
-Exemple Minimal API pour valider un formulaire:
+## Exemple avec ASP.NET Framework 4.8
 
-```csharp
-app.MapPost("/contact", async (HttpRequest request, AltchaService altchaService, CancellationToken ct) =>
-{
-    var form = await request.ReadFormAsync(ct);
-    var result = altchaService.ValidateResponse(form["altcha"]);
-
-    if (!result.IsValid)
-    {
-        return Results.BadRequest(new { error = result.Error.ToString() });
-    }
-
-    return Results.Ok();
-});
-```
-
-Exemple minimal sans rate limiter (seulement `Cache-Control: no-store`):
-
-```csharp
-app.MapAltchaChallenge("/altcha/challenge");
-```
-
-## ASP.NET Framework 4.8 quick start
+Créez le service une seule fois et réutilisez-le :
 
 ```csharp
 using Altcha.Net;
 
-var service = new AltchaService(new AltchaOptions
-{
-    SecretKey = Environment.GetEnvironmentVariable("ALTCHA_SECRET")!,
-    ChallengeExpiry = TimeSpan.FromMinutes(2),
-    AllowedClockSkew = TimeSpan.FromSeconds(10),
-    Complexity = new AltchaComplexity(50000, 100000)
-}, new MemoryAltchaReplayStore());
+var service = new AltchaService(
+    new AltchaOptions
+    {
+        SecretKey = Environment.GetEnvironmentVariable("ALTCHA_SECRET")!,
+        ChallengeExpiry = TimeSpan.FromMinutes(2),
+        AllowedClockSkew = TimeSpan.FromSeconds(10),
+        Complexity = new AltchaComplexity(50000, 100000)
+    },
+    new MemoryAltchaReplayStore());
 ```
 
-Endpoint challenge MVC:
+Endpoint MVC pour générer un challenge :
 
 ```csharp
 public ActionResult Challenge()
 {
-    return Content(AltchaProvider.Service.GenerateChallenge().ToJson(), "application/json");
+    var challenge = AltchaProvider.Service.GenerateChallenge();
+
+    return Content(challenge.ToJson(), "application/json");
 }
 ```
 
-Validation POST:
+Validation d’un formulaire POST :
 
 ```csharp
 var result = AltchaProvider.Service.ValidateResponse(Request.Form["altcha"]);
+
 if (!result.IsValid)
 {
     ModelState.AddModelError("", "Validation ALTCHA invalide.");
@@ -163,75 +270,38 @@ if (!result.IsValid)
 }
 ```
 
-Des exemples sont disponibles dans:
+## Bonnes pratiques de production
 
+Avant d’utiliser Altcha.Net en production :
+
+- stockez `SecretKey` dans un gestionnaire de secrets ou une variable d’environnement ;
+- servez le site et l’endpoint de challenge en HTTPS ;
+- gardez une durée d’expiration courte ;
+- appliquez du rate limiting sur l’endpoint de challenge ;
+- ne loggez jamais la clé secrète ni les payloads ALTCHA complets ;
+- utilisez un store anti-rejeu partagé en cas de déploiement multi-instance ;
+- synchronisez les horloges serveur si plusieurs instances valident des challenges.
+
+## Exemples
+
+Des exemples sont disponibles dans :
+
+- `examples/Altcha.Net.Examples.AspNetCore.MinimalApi`
 - `examples/Altcha.Net.Examples.AspNetMvc.CSharp`
 - `examples/Altcha.Net.Examples.AspNetWebForms.VbNet`
-- `examples/Altcha.Net.Examples.AspNetCore.MinimalApi`
 
-## Widget HTML
+## Positionnement RGPD
 
-Hebergez le script du widget ALTCHA dans votre application, puis pointez `challenge` vers votre endpoint local.
+ALTCHA est conçu comme une alternative privacy-first aux CAPTCHA traditionnels (notamment reCATCHA).
 
-```html
-<script async defer src="/scripts/altcha.min.js" type="module"></script>
+Avec Altcha.Net, les challenges sont générés et validés côté serveur dans votre propre application. Aucune API ALTCHA externe n’est nécessaire pour le fonctionnement proof-of-work de base.
 
-<form method="post" action="/Contact/Submit">
-  <input name="email" type="email" required>
-  <textarea name="message" required></textarea>
-  <altcha-widget challenge="/altcha/challenge"></altcha-widget>
-  <button type="submit">Envoyer</button>
-</form>
-```
+Cela facilite les intégrations dans des environnements où la maîtrise des données, l’absence de tracking et la réduction des dépendances tierces sont importantes.
 
-Le widget poste un champ de formulaire `altcha` contenant un JSON encode en Base64.
+La conformité RGPD finale dépend toutefois de l’intégration globale de votre application.
 
-## Configuration
+## Projet non officiel
 
-- `SecretKey`: cle HMAC serveur. Ne jamais l'exposer au navigateur.
-- `ChallengeExpiry`: duree de validite courte, par defaut 2 minutes.
-- `Complexity`: plage du nombre proof-of-work, par defaut `50000..100000`.
-- `AllowedClockSkew`: marge de tolerance inter-noeuds pour l'expiration, par defaut 10 secondes (recommande entre 5 et 30 secondes avec NTP actif).
-- `IAltchaReplayStore`: store anti-replay.
-- `Algorithm`: seul `SHA-256` est supporte actuellement.
+Altcha.Net est une implémentation communautaire non officielle.
 
-## Production notes
-
-- Stocker `SecretKey` dans un secret manager ou une variable d'environnement.
-- Servir le site en HTTPS.
-- Garder une expiration courte.
-- Synchroniser les horloges serveurs via NTP (chrony/systemd-timesyncd/Windows Time) pour limiter le skew.
-- Ne pas logger les payloads ALTCHA complets ni la cle secrete.
-- Utiliser un store partage en multi-instance.
-- Eviter `MemoryAltchaReplayStore` en production multi-serveur.
-- `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.BestEffort)` utilise `IDistributedCache` en fallback best effort: anti-replay non strictement atomique.
-- `AddRedisAltchaReplayStore(...)` enregistre `RedisAltchaReplayStore`, puis `AddDistributedAltchaReplayStore(DistributedAltchaReplayStoreMode.StrictAtomic)` active l'insert-if-absent atomique Redis `SET NX` entre workers.
-
-## Known limitations
-
-- Pas d'integration ALTCHA Sentinel.
-- Pas de spam filter API ALTCHA.
-- Proof-of-work uniquement.
-- SHA-256 uniquement.
-- `IDistributedCache` ne fournit pas toujours une atomicite stricte.
-
-## Not affiliated with ALTCHA
-
-Altcha.Net est une implementation communautaire non officielle. Ce projet n'est pas affilie, approuve ou sponsorise par ALTCHA.
-
-## Build, Test, Pack
-
-```bash
-dotnet restore Altcha.Net.sln
-dotnet build Altcha.Net.sln --configuration Release
-dotnet test Altcha.Net.sln --configuration Release
-dotnet pack src/Altcha.Net/Altcha.Net.csproj --configuration Release --output artifacts
-dotnet pack src/Altcha.Net.AspNetCore/Altcha.Net.AspNetCore.csproj --configuration Release --output artifacts
-```
-
-## References
-
-- [ALTCHA widget integration](https://altcha.org/docs/v2/widget-integration/)
-- [ALTCHA server integration](https://altcha.org/it/docs/v2/server-integration/)
-- [ALTCHA widget v3 / PoW compatibility](https://altcha.org/de/docs/v2/widget-v3/)
-- [ALTCHA security advisory GHSA-6gvq-jcmp-8959](https://altcha.org/security-advisory/)
+Ce projet n’est pas affilié, approuvé ou sponsorisé par ALTCHA.
