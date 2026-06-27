@@ -8,6 +8,8 @@ public interface IAtomicAltchaReplayStore
     /// <summary>
     /// Tries to store the replay key once in an atomic way.
     /// </summary>
+    /// <param name="key">The replay key to store.</param>
+    /// <param name="expiresAt">The time after which the replay key may be discarded.</param>
     /// <returns><c>true</c> when the key was inserted; otherwise <c>false</c>.</returns>
     bool TryStoreOnceAtomic(string key, DateTimeOffset expiresAt);
 }

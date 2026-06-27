@@ -3,6 +3,9 @@ using System.Text;
 
 namespace Altcha.Net;
 
+/// <summary>
+/// Generates ALTCHA challenges and validates submitted ALTCHA payloads.
+/// </summary>
 public sealed class AltchaService
 {
     private readonly AltchaOptions _options;
@@ -10,11 +13,20 @@ public sealed class AltchaService
     private readonly IAltchaClock _clock;
     private readonly byte[] _secretKeyBytes;
 
+    /// <summary>
+    /// Creates an ALTCHA service using the default in-memory replay store.
+    /// </summary>
+    /// <param name="options">The challenge and validation options, including the private secret key.</param>
     public AltchaService(AltchaOptions options)
         : this(options, new MemoryAltchaReplayStore())
     {
     }
 
+    /// <summary>
+    /// Creates an ALTCHA service using a custom replay store.
+    /// </summary>
+    /// <param name="options">The challenge and validation options, including the private secret key.</param>
+    /// <param name="replayStore">The store used to reject reused challenge hashes.</param>
     public AltchaService(AltchaOptions options, IAltchaReplayStore replayStore)
         : this(options, replayStore, new SystemAltchaClock())
     {
@@ -29,6 +41,10 @@ public sealed class AltchaService
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
+    /// <summary>
+    /// Generates a signed ALTCHA challenge for the client-side widget.
+    /// </summary>
+    /// <returns>A challenge payload that can be sent to the client.</returns>
     public AltchaChallenge GenerateChallenge()
     {
         var expires = _clock.UtcNow.Add(_options.ChallengeExpiry).ToUnixTimeSeconds();
@@ -40,6 +56,11 @@ public sealed class AltchaService
         return new AltchaChallenge(_options.Algorithm, challenge, salt, signature, _options.Complexity.MaxNumber);
     }
 
+    /// <summary>
+    /// Validates an encoded ALTCHA form value and rejects expired, tampered, oversized, or replayed payloads.
+    /// </summary>
+    /// <param name="altchaFormValue">The value submitted by the ALTCHA widget.</param>
+    /// <returns>The validation result with a stable error code when validation fails.</returns>
     public AltchaValidationResult ValidateResponse(string? altchaFormValue)
     {
         if (string.IsNullOrWhiteSpace(altchaFormValue))

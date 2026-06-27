@@ -4,6 +4,9 @@ using Microsoft.Extensions.Caching.Distributed;
 
 namespace Altcha.Net.AspNetCore;
 
+/// <summary>
+/// Stores ALTCHA replay keys in an ASP.NET Core distributed cache.
+/// </summary>
 public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
 {
     private const string CacheValue = "1";
@@ -11,16 +14,31 @@ public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
     private readonly IAtomicAltchaReplayStore? _atomicStore;
     private readonly string _keyPrefix;
 
+    /// <summary>
+    /// Creates a distributed replay store with the default key prefix.
+    /// </summary>
+    /// <param name="cache">The distributed cache used for replay keys.</param>
     public DistributedCacheAltchaReplayStore(IDistributedCache cache)
         : this(cache, "altcha:replay:")
     {
     }
 
+    /// <summary>
+    /// Creates a distributed replay store with a custom key prefix.
+    /// </summary>
+    /// <param name="cache">The distributed cache used for replay keys.</param>
+    /// <param name="keyPrefix">The cache key prefix used to isolate ALTCHA replay keys.</param>
     public DistributedCacheAltchaReplayStore(IDistributedCache cache, string keyPrefix)
         : this(cache, null, keyPrefix)
     {
     }
 
+    /// <summary>
+    /// Creates a distributed replay store with an optional atomic store for strict replay protection.
+    /// </summary>
+    /// <param name="cache">The distributed cache used for replay keys.</param>
+    /// <param name="atomicStore">The optional atomic store used to insert replay keys once across workers.</param>
+    /// <param name="keyPrefix">The cache key prefix used to isolate ALTCHA replay keys.</param>
     public DistributedCacheAltchaReplayStore(
         IDistributedCache cache,
         IAtomicAltchaReplayStore? atomicStore,
@@ -33,6 +51,12 @@ public sealed class DistributedCacheAltchaReplayStore : IAltchaReplayStore
             : keyPrefix;
     }
 
+    /// <summary>
+    /// Tries to store a replay key until its expiry time.
+    /// </summary>
+    /// <param name="key">The replay key, usually the challenge hash.</param>
+    /// <param name="expiresAt">The time after which the replay key may be discarded.</param>
+    /// <returns><c>true</c> when the key was stored; otherwise <c>false</c> for a replay or expired key.</returns>
     public bool TryStoreOnce(string key, DateTimeOffset expiresAt)
     {
         if (string.IsNullOrWhiteSpace(key))

@@ -6,8 +6,17 @@ using StackExchange.Redis;
 
 namespace Altcha.Net.AspNetCore;
 
+/// <summary>
+/// Registers ALTCHA services and replay stores with an ASP.NET Core service collection.
+/// </summary>
 public static class AltchaServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers <see cref="AltchaService"/> and configures ALTCHA options in code.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configure">The options callback; set a private <see cref="AltchaOptions.SecretKey"/> before use.</param>
+    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddAltcha(this IServiceCollection services, Action<AltchaOptions> configure)
     {
         if (services == null)
@@ -24,6 +33,12 @@ public static class AltchaServiceCollectionExtensions
         return services.AddAltchaCore();
     }
 
+    /// <summary>
+    /// Registers <see cref="AltchaService"/> and binds ALTCHA options from configuration.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The configuration section containing ALTCHA options, including the private secret key.</param>
+    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddAltcha(this IServiceCollection services, IConfiguration configuration)
     {
         if (services == null)
@@ -40,6 +55,12 @@ public static class AltchaServiceCollectionExtensions
         return services.AddAltchaCore();
     }
 
+    /// <summary>
+    /// Replaces the default in-memory replay store with an <see cref="Microsoft.Extensions.Caching.Distributed.IDistributedCache"/> based store.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="mode">The replay protection mode; use strict atomic mode for multi-node deployments when an atomic store is registered.</param>
+    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddDistributedAltchaReplayStore(
         this IServiceCollection services,
         DistributedAltchaReplayStoreMode mode = DistributedAltchaReplayStoreMode.BestEffort)
@@ -67,6 +88,12 @@ public static class AltchaServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Registers a Redis-backed atomic replay store for strict replay protection.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="databaseFactory">A factory that returns the Redis database used for replay keys.</param>
+    /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddRedisAltchaReplayStore(
         this IServiceCollection services,
         Func<IServiceProvider, IDatabase> databaseFactory)
